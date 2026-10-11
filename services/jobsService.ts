@@ -3,18 +3,48 @@ import { cacheJob } from "@/services/syncService";
 import type { Job } from "@/types";
 
 export async function fetchJobs(technicianId: string, status?: string) {
-  const { data } = await api.getJobs(technicianId, status);
-  const jobs: Job[] = Array.isArray(data) ? data : data?.jobs ?? data?.data ?? [];
-  for (const job of jobs) {
-    await cacheJob({
-      id: job.id,
-      jobNumber: job.jobNumber,
-      status: job.status,
-      customerJson: JSON.stringify(job.customer ?? { name: job.customerName }),
-      itemsJson: JSON.stringify(job.items ?? []),
-    });
+  try {
+    const { data } = await api.getJobs(technicianId, status);
+    const jobs: Job[] = Array.isArray(data) ? data : data?.jobs ?? data?.data ?? [];
+    for (const job of jobs) {
+      try {
+        await cacheJob({
+          id: job.id,
+          jobNumber: job.jobNumber,
+          status: job.status,
+          customerJson: JSON.stringify(job.customer ?? { name: job.customerName }),
+          itemsJson: JSON.stringify(job.items ?? []),
+        });
+      } catch {
+        /* SQLite cache failure must never prevent jobs from loading */
+      }
+    }
+    return jobs;
+  } catch (err) {
+    try {
+      const { getDatabase } = await import("@/db/database");
+      const db = await getDatabase();
+      const rows = await db.getAllAsync<{
+        id: string;
+        jobNumber: string;
+        status: string;
+        customerJson: string;
+        itemsJson: string;
+      }>("SELECT * FROM local_jobs ORDER BY updatedAt DESC");
+      if (rows && rows.length > 0) {
+        return rows.map((r) => ({
+          id: r.id,
+          jobNumber: r.jobNumber,
+          status: r.status as any,
+          customer: JSON.parse(r.customerJson),
+          items: JSON.parse(r.itemsJson),
+        })) as Job[];
+      }
+    } catch {
+      /* ignore offline fallback errors */
+    }
+    throw err;
   }
-  return jobs;
 }
 
 export async function fetchJob(jobId: string) {

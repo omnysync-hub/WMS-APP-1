@@ -123,7 +123,7 @@ export function isMobileAccessDisabledResponse(status?: number, body?: unknown):
   if (status === 403) return true;
   if (
     status === 401 &&
-    /unauthorized|missing or invalid|authentication required|expired.*session|deactivated session/.test(
+    /unauthorized|unauthenticated|missing or invalid|authentication required|expired.*session|session.*ended|deactivated session|invalid.*session/.test(
       msg
     )
   ) {
