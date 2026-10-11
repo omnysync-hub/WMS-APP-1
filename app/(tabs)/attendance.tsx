@@ -5,6 +5,8 @@ import { useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { InlineBanner } from "@/components/ui/InlineBanner";
+import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { GeofenceMapCard } from "@/components/attendance/GeofenceMapCard";
 import { PunchLogList } from "@/components/attendance/PunchLogList";
 import { FaceCaptureCamera } from "@/components/face/FaceCaptureCamera";
@@ -15,13 +17,13 @@ import {
   getStableDeviceId,
   submitAttendancePunch,
 } from "@/services/attendanceService";
-import { evaluateCheckInFace, warmFaceModels } from "@/services/face/pipeline";
+import { evaluateCheckInFace } from "@/services/face/pipeline";
 import { hydrateEnrollmentEmbedding } from "@/services/face/enrollmentService";
 import { FACE_THRESHOLDS, logFaceScores } from "@/services/face/thresholds";
 import { useAuthStore } from "@/store/authStore";
 import { useSyncStore } from "@/store/syncStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { colors } from "@/constants/theme";
+import { colors, space, type } from "@/constants/theme";
 import type { GeofenceZone } from "@/types";
 import type { DetectedFace } from "@/services/face/pipeline";
 
@@ -36,9 +38,10 @@ export default function AttendanceScreen() {
   const [showCamera, setShowCamera] = useState(false);
   const [sessionZones, setSessionZones] = useState<GeofenceZone[] | null>(null);
   const [matchAttempts, setMatchAttempts] = useState(0);
-  const [showPinFallback, setShowPinFallback] = useState(false);
-  const [pin, setPin] = useState("");
+  const [showBackupVerification, setShowBackupVerification] = useState(false);
+  const [backupPassword, setBackupPassword] = useState("");
   const [processingFace, setProcessingFace] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [lastResultBanner, setLastResultBanner] = useState<{
     kind: "ok" | "flagged" | "pending" | "error";
     title: string;
@@ -61,23 +64,26 @@ export default function AttendanceScreen() {
     setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
   }, []);
 
-  const loadZones = useCallback(async () => {
-    if (sessionZones !== null) return sessionZones;
-    const zones = await fetchGeofenceZones();
-    setSessionZones(zones);
-    return zones;
-  }, [sessionZones]);
+  const loadZones = useCallback(
+    async (force = false) => {
+      if (!force && sessionZones !== null) return sessionZones;
+      const zones = await fetchGeofenceZones(employee?.id);
+      setSessionZones(zones);
+      return zones;
+    },
+    [sessionZones, employee?.id]
+  );
 
   useEffect(() => {
     void refreshLocation();
-    void loadZones().catch(() => {});
+    setSessionZones(null);
+    void loadZones(true).catch(() => {});
     if (employee?.id) {
       void hydrateEnrollmentEmbedding(employee.id).then((emb) => {
         enrolledRef.current = emb;
       });
-      void warmFaceModels().catch(() => {});
     }
-  }, [refreshLocation, loadZones, employee?.id]);
+  }, [refreshLocation, employee?.id]);
 
   const history = useQuery({
     queryKey: ["attendance", employee?.id],
@@ -96,8 +102,11 @@ export default function AttendanceScreen() {
       const zones = await loadZones();
       const near = findNearestZone(coords.lat, coords.lng, zones);
       const deviceId = await getStableDeviceId();
-      const timestamp = captureTimestampRef.current ?? new Date().toISOString();
+      const timestamp = new Date().toISOString();
       const { faceMatchScore, livenessScore, notes } = scoresRef.current;
+      if (livenessScore == null || Number.isNaN(livenessScore)) {
+        throw new Error("Face check incomplete — try again.");
+      }
 
       return submitAttendancePunch({
         employeeId: employee.id,
@@ -106,8 +115,9 @@ export default function AttendanceScreen() {
         lng: coords.lng,
         timestamp,
         faceMatchScore,
-        livenessScore,
+        livenessScore: Number(livenessScore),
         deviceId,
+        backupPassword: showBackupVerification ? backupPassword : undefined,
         notes:
           notes ??
           (near
@@ -117,16 +127,16 @@ export default function AttendanceScreen() {
     },
     onSuccess: (result) => {
       setShowCamera(false);
-      setShowPinFallback(false);
       captureTimestampRef.current = null;
       qc.invalidateQueries({ queryKey: ["attendance"] });
 
       if (result.queued) {
+        setShowBackupVerification(false);
+        setBackupPassword("");
         setLastResultBanner({
           kind: "pending",
-          title: "Pending sync",
-          detail:
-            "No network — check-in queued. Not marked checked-in until the server confirms.",
+          title: "Saved on this phone",
+          detail: "No network — we’ll send it when you’re back online.",
         });
         return;
       }
@@ -134,51 +144,53 @@ export default function AttendanceScreen() {
       if (result.status === "rejected") {
         const staleHint =
           result.code === "STALE_PAYLOAD"
-            ? " Retry promptly — clock drift or slow network."
+            ? " Tap Try again soon — the check timed out."
             : "";
         setLastResultBanner({
           kind: "error",
-          title: "Check-in rejected",
+          title: "Check-in didn’t go through",
           detail: `${result.message}${staleHint}`,
         });
-        Alert.alert(
-          result.code === "STALE_PAYLOAD" ? "Retry needed" : "Rejected",
-          `${result.message}${staleHint}`
-        );
         return;
       }
+
+      setShowBackupVerification(false);
+      setBackupPassword("");
 
       if (result.status === "accepted-but-flagged") {
         const zone = result.zoneName ?? nearest?.zone.name ?? "site";
         setLastResultBanner({
           kind: "flagged",
-          title: `Checked in at ${zone} — flagged for review`,
-          detail: result.flagReason ?? result.message,
+          title: `Checked in at ${zone}`,
+          detail: `Office will review: ${result.flagReason ?? result.message}`,
         });
-        Alert.alert(
-          "Checked in (flagged)",
-          `Checked in at ${zone}.\n\nFlagged for review: ${result.flagReason ?? result.message}`
-        );
         return;
       }
 
       const zone = result.zoneName ?? nearest?.zone.name ?? "site";
       setLastResultBanner({
         kind: "ok",
-        title: `Checked in at ${zone}`,
-        detail: result.message,
+        title: `You’re checked in at ${zone}`,
+        detail: result.message || "All set — have a good shift.",
       });
-      Alert.alert("Checked in", `Checked in at ${zone}`);
     },
     onError: (e: Error) => {
-      setLastResultBanner({ kind: "error", title: "Check-in failed", detail: e.message });
-      Alert.alert("Check-in failed", e.message);
+      setLastResultBanner({
+        kind: "error",
+        title: "Check-in failed",
+        detail: e.message,
+      });
     },
   });
 
   async function openCameraFlow() {
+    setLastResultBanner(null);
     if (!coords) {
-      Alert.alert("Location required", "Enable GPS to check in.");
+      setLastResultBanner({
+        kind: "error",
+        title: "Location needed",
+        detail: "Turn on GPS, then try Check in again.",
+      });
       await refreshLocation();
       return;
     }
@@ -187,9 +199,9 @@ export default function AttendanceScreen() {
       const emb = employee?.id ? await hydrateEnrollmentEmbedding(employee.id) : null;
       enrolledRef.current = emb;
       if (!emb) {
-        Alert.alert("Face not enrolled", "Enroll your face before biometric check-in.", [
+        Alert.alert("Face not set up", "Take your enrollment photos once, then check in with your face.", [
           { text: "Cancel", style: "cancel" },
-          { text: "Enroll", onPress: () => router.push("/enrollment") },
+          { text: "Set up face", onPress: () => router.push("/enrollment") },
         ]);
         return;
       }
@@ -207,7 +219,7 @@ export default function AttendanceScreen() {
 
     const proceed = () => {
       setMatchAttempts(0);
-      setShowPinFallback(false);
+      setShowBackupVerification(false);
       setShowCamera(true);
     };
 
@@ -217,8 +229,8 @@ export default function AttendanceScreen() {
       near.distanceM > near.zone.radiusMeters * FACE_THRESHOLDS.farWarningMultiplier
     ) {
       Alert.alert(
-        "Far from office",
-        `You appear ${Math.round(near.distanceM)}m from ${near.zone.name}. Check-in may be flagged.`,
+        "Far from site",
+        `You look about ${Math.round(near.distanceM)}m from ${near.zone.name}. Check-in may be flagged.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Continue anyway", onPress: proceed },
@@ -229,8 +241,8 @@ export default function AttendanceScreen() {
 
     if (near && !near.within) {
       Alert.alert(
-        "Outside zone",
-        `Outside ${near.zone.name} (${Math.round(near.distanceM)}m). Server still decides.`,
+        "Away from site",
+        `Outside ${near.zone.name} (${Math.round(near.distanceM)}m). You can still try — office may review.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Continue", onPress: proceed },
@@ -251,12 +263,31 @@ export default function AttendanceScreen() {
         photoUri: uri,
         face,
         enrolledEmbedding: enrolledRef.current,
+        challengeOk: true,
       });
 
       if (!result.ok) {
         if (result.reason === "spoof") {
-          Alert.alert("Liveness failed", result.message);
-          setLastResultBanner({ kind: "error", title: "Spoof rejected", detail: result.message });
+          setLastResultBanner({
+            kind: "error",
+            title: "Couldn’t verify live face",
+            detail: result.message,
+          });
+          return;
+        }
+        if (result.reason === "quality") {
+          setLastResultBanner({
+            kind: "error",
+            title: "Photo unclear",
+            detail: result.message,
+          });
+          return;
+        }
+        if (result.reason === "models") {
+          Alert.alert(
+            "Face models missing",
+            `${result.message}\n\nAsk IT to run npm run models:fetch and rebuild the app.`
+          );
           return;
         }
         if (result.reason === "low_match") {
@@ -264,22 +295,31 @@ export default function AttendanceScreen() {
           setMatchAttempts(next);
           if (next > FACE_THRESHOLDS.maxMatchRetries) {
             setShowCamera(false);
-            setShowPinFallback(true);
+            setShowBackupVerification(true);
             logFaceScores({
-              outcome: "pin_fallback",
+              outcome: "password_fallback",
               cosine: result.faceMatchScore,
               liveness: result.livenessScore,
             });
-            Alert.alert(
-              "Manual check-in",
-              "Face match failed after retries. Enter PIN — this punch will be flagged for HR."
-            );
+            setLastResultBanner({
+              kind: "error",
+              title: "Face didn’t match",
+              detail: "Use your work password for backup verification. You must be online.",
+            });
           } else {
-            Alert.alert("Retry", `${result.message} (attempt ${next}/${FACE_THRESHOLDS.maxMatchRetries})`);
+            setLastResultBanner({
+              kind: "error",
+              title: "Try again",
+              detail: `${result.message} (${next}/${FACE_THRESHOLDS.maxMatchRetries})`,
+            });
           }
           return;
         }
-        Alert.alert("Face check failed", result.message);
+        setLastResultBanner({
+          kind: "error",
+          title: "Face check failed",
+          detail: result.message,
+        });
         return;
       }
 
@@ -295,34 +335,46 @@ export default function AttendanceScreen() {
     }
   }
 
-  function submitPinFallback() {
-    if (pin.length < 4) {
-      Alert.alert("PIN required");
+  function submitBackupVerification() {
+    if (!isOnline) {
+      setLastResultBanner({
+        kind: "error",
+        title: "Internet needed",
+        detail: "Backup verification cannot be saved offline. Connect to the internet and try again.",
+      });
+      return;
+    }
+    if (!backupPassword.trim()) {
+      setLastResultBanner({
+        kind: "error",
+        title: "Password needed",
+        detail: "Enter the same work password you use to sign in.",
+      });
       return;
     }
     captureTimestampRef.current = new Date().toISOString();
     scoresRef.current = {
       faceMatchScore: 0,
       livenessScore: 0,
-      notes: `PIN_OVERRIDE flagged for HR review (face match exhausted)`,
+      notes: "Backup verification used after face match attempts were exhausted",
     };
-    logFaceScores({ outcome: "pin_override_submit" });
+    logFaceScores({ outcome: "password_fallback_submit" });
     mutation.mutate();
   }
 
-  const bannerColor =
+  const bannerTone =
     lastResultBanner?.kind === "ok"
-      ? colors.primary
+      ? "success"
       : lastResultBanner?.kind === "flagged"
-        ? colors.high
+        ? "warn"
         : lastResultBanner?.kind === "pending"
-          ? colors.textDim
-          : colors.danger;
+          ? "info"
+          : "error";
 
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      contentContainerStyle={{ padding: space.lg, paddingBottom: 40 }}
       refreshControl={
         <RefreshControl
           refreshing={history.isRefetching}
@@ -334,90 +386,135 @@ export default function AttendanceScreen() {
         />
       }
     >
-      <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800" }}>Attendance</Text>
-      <Text style={{ color: colors.textMuted, marginBottom: 14 }}>
-        Geofence + on-device face match & liveness (pilot thresholds — scores logged)
-      </Text>
+      <ScreenHeader
+        title="Check-in"
+        subtitle="One tap, then blink once at the camera."
+      />
 
       {!isOnline && (
-        <Card style={{ marginBottom: 12, borderColor: colors.high }}>
-          <Text style={{ color: colors.high, fontWeight: "700" }}>Offline</Text>
-          <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 13 }}>
-            Pending sync until server confirms
-            {pendingCount > 0 ? ` (${pendingCount} queued)` : ""}.
-          </Text>
-        </Card>
+        <InlineBanner
+          title="You’re offline"
+          detail={
+            pendingCount > 0
+              ? `${pendingCount} check-in(s) waiting to sync.`
+              : "Check-ins save on this phone until you’re back online."
+          }
+          tone="warn"
+        />
       )}
 
       {lastResultBanner && (
-        <Card style={{ marginBottom: 12, borderColor: bannerColor }}>
-          <Text style={{ color: bannerColor, fontWeight: "800" }}>{lastResultBanner.title}</Text>
-          {!!lastResultBanner.detail && (
-            <Text style={{ color: colors.textMuted, marginTop: 6, fontSize: 13 }}>
-              {lastResultBanner.detail}
-            </Text>
-          )}
-        </Card>
+        <InlineBanner
+          title={lastResultBanner.title}
+          detail={lastResultBanner.detail}
+          tone={bannerTone}
+        />
+      )}
+
+      {lastResultBanner?.kind === "error" && !showCamera && !showBackupVerification && (
+        <Button
+          title="Try again"
+          onPress={() => void openCameraFlow()}
+          style={{ marginBottom: space.lg }}
+        />
       )}
 
       <GeofenceMapCard
-        label={nearest?.zone.name ?? (sessionZones ? "No active zones" : "Loading zones…")}
+        label={
+          nearest?.zone.name ??
+          (sessionZones?.length === 0
+            ? "No assigned site"
+            : sessionZones
+              ? "No active zones"
+              : "Loading sites…")
+        }
         distanceM={nearest?.distanceM ?? null}
         radiusM={nearest?.zone.radiusMeters}
       />
 
       {showCamera ? (
-        <View style={{ marginTop: 14 }}>
+        <View style={{ marginTop: space.lg }}>
           <FaceCaptureCamera
             mode="checkin"
-            enableChallenge
+            enableBlinkChallenge
             busy={processingFace || mutation.isPending}
-            captureLabel="Capture & Verify"
+            captureLabel="Verify & check in"
             onCancel={() => setShowCamera(false)}
             onCaptured={({ uri, face }) => void onFaceCaptured(uri, face)}
           />
         </View>
-      ) : showPinFallback ? (
-        <Card style={{ marginTop: 14 }}>
-          <Text style={{ color: colors.text, fontWeight: "700", marginBottom: 8 }}>
-            PIN override (flagged for HR)
+      ) : showBackupVerification ? (
+        <Card style={{ marginTop: space.lg }}>
+          <Text style={{ color: colors.text, marginBottom: space.sm, ...type.body, fontWeight: "800" }}>
+            Backup verification
+          </Text>
+          <Text style={{ color: colors.textMuted, marginBottom: space.md, ...type.subtitle }}>
+            Enter your work password. The office may review this check-in.
           </Text>
           <TextInput
-            value={pin}
-            onChangeText={setPin}
+            value={backupPassword}
+            onChangeText={setBackupPassword}
             secureTextEntry
-            keyboardType="number-pad"
-            placeholder="Employee PIN"
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="Work password"
             placeholderTextColor={colors.textDim}
+            accessibilityLabel="Work password for backup verification"
             style={{
               backgroundColor: colors.surfaceElevated,
               color: colors.text,
               borderRadius: 10,
-              padding: 12,
-              marginBottom: 10,
+              padding: space.md,
+              marginBottom: space.md,
+              minHeight: 52,
+              fontSize: 17,
             }}
           />
-          <Button title="Submit flagged check-in" loading={mutation.isPending} onPress={submitPinFallback} />
+          <Button
+            title="Verify & check in"
+            loading={mutation.isPending}
+            disabled={!isOnline}
+            onPress={submitBackupVerification}
+          />
         </Card>
       ) : (
-        <View style={{ marginTop: 14, gap: 10 }}>
+        <View style={{ marginTop: space.lg, gap: space.md }}>
           <Button
-            title="Check In"
+            title="Check in now"
             loading={mutation.isPending}
             onPress={() => void openCameraFlow()}
+            style={{ minHeight: 64 }}
           />
           <Button
-            title="Face enrollment"
+            title="Set up face first"
             variant="secondary"
             onPress={() => router.push("/enrollment")}
           />
         </View>
       )}
 
-      <Text style={{ color: colors.text, fontWeight: "700", marginTop: 24, marginBottom: 10 }}>
-        My attendance
-      </Text>
-      <PunchLogList logs={history.data ?? []} />
+      <Button
+        title={showHistory ? "Hide recent check-ins" : "Show recent check-ins"}
+        variant="ghost"
+        size="md"
+        onPress={() => setShowHistory((v) => !v)}
+        style={{ marginTop: space.xl }}
+      />
+      {showHistory ? (
+        <>
+          <Text
+            style={{
+              color: colors.text,
+              fontWeight: "700",
+              marginTop: space.md,
+              marginBottom: space.sm,
+            }}
+          >
+            Recent
+          </Text>
+          <PunchLogList logs={history.data ?? []} />
+        </>
+      ) : null}
     </ScrollView>
   );
 }

@@ -7,14 +7,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "scheme": "workman",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.workmanservices.technician",
       "infoPlist": {
         "UIBackgroundModes": ["location", "fetch", "remote-notification"],
-        "NSLocationWhenInUseUsageDescription": "Workman Services requires location access to dispatch nearby jobs.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Workman Services uses background location to track fleet arrival at customer sites.",
+        "NSLocationWhenInUseUsageDescription": "Workman Services needs your location for attendance geofencing and job site arrival.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Workman Services uses background location for job dispatch, arrival verification, and field safety while you are on shift.",
+        "NSLocationAlwaysUsageDescription": "Workman Services uses background location for job dispatch, arrival verification, and field safety while you are on shift.",
         "NSCameraUsageDescription": "Camera is required for biometric attendance and job receipt scanning.",
         "NSFaceIDUsageDescription": "Fast biometric login into the technician companion app."
       }
@@ -25,6 +25,7 @@
         "backgroundColor": "#0D7A5F"
       },
       "package": "com.workmanservices.technician",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -33,7 +34,11 @@
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "USE_FULL_SCREEN_INTENT",
+        "WAKE_LOCK",
+        "ACCESS_NOTIFICATION_POLICY"
       ]
     },
     "web": {
@@ -44,22 +49,39 @@
       "expo-sqlite",
       "expo-secure-store",
       "expo-dev-client",
+      "expo-task-manager",
+      "onnxruntime-react-native",
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Workman Services to detect when you reach customer job sites."
+          "locationAlwaysAndWhenInUsePermission": "Workman Services uses background location for job dispatch, arrival verification, and field safety while you are on shift.",
+          "locationWhenInUsePermission": "Workman Services needs your location for attendance geofencing and job site arrival.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Workman Services needs photo access to attach job completion proof pictures.",
+          "cameraPermission": "Workman Services needs the camera for job completion and receipt photos."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Workman Services to scan job site equipment and receipts."
+          "cameraPermission": "Allow Workman Services to scan job site equipment, receipts, and completion photos."
         }
       ],
       [
         "expo-notifications",
         {
-          "color": "#0D7A5F"
+          "color": "#0D7A5F",
+          "sounds": [
+            "./assets/sounds/job_ring.wav",
+            "./assets/sounds/alert_chime.wav"
+          ],
+          "mode": "production"
         }
       ]
     ],
@@ -68,7 +90,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "replace-with-eas-project-id"
+        "projectId": "e45789c5-e0e2-4e8a-91b6-f3a01ea18ed4"
       }
     }
   }

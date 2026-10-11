@@ -1,17 +1,20 @@
 /**
  * ONNX sessions for MobileFaceNet (512-d) + Silent-Face-Anti-Spoofing.
- * Models load from documentDirectory/models (after scripts/fetch-models.mjs)
- * or EXPO_PUBLIC_FACE_ML_MOCK=1 for simulator stubs.
+ * Models load from documentDirectory/models (bootstrapFaceModels copies from assets).
+ *
+ * Requires a Dev Client / release APK rebuilt with the onnxruntime-react-native native module.
  */
+import { NativeModules } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import { FACE_THRESHOLDS } from "@/services/face/thresholds";
 import { l2Normalize } from "@/services/face/math";
 
-type OrtModule = typeof import("onnxruntime-react-native");
+type OrtNs = typeof import("onnxruntime-react-native");
+type OrtSession = import("onnxruntime-react-native").InferenceSession;
 
-let ort: OrtModule | null = null;
-let embedSession: import("onnxruntime-react-native").InferenceSession | null = null;
-let livenessSession: import("onnxruntime-react-native").InferenceSession | null = null;
+let ort: OrtNs | null = null;
+let embedSession: OrtSession | null = null;
+let livenessSession: OrtSession | null = null;
 
 export class ModelsMissingError extends Error {
   constructor(message: string) {
@@ -20,7 +23,9 @@ export class ModelsMissingError extends Error {
   }
 }
 
+/** Mock only in __DEV__ when explicitly enabled — never in release builds. */
 function mockEnabled() {
+  if (!__DEV__) return false;
   return process.env.EXPO_PUBLIC_FACE_ML_MOCK === "1";
 }
 
@@ -36,16 +41,27 @@ function livenessPath() {
   return `${modelsDir()}silent_face_anti_spoof_int8.onnx`;
 }
 
-async function loadOrt() {
+function loadOrt(): OrtNs {
   if (ort) return ort;
-  try {
-    ort = await import("onnxruntime-react-native");
-    return ort;
-  } catch {
+
+  // Native module must be in the APK (config plugin + rebuild). Checking first
+  // avoids a hard crash from binding.ts calling null.install().
+  if (!NativeModules.Onnxruntime) {
     throw new ModelsMissingError(
-      "onnxruntime-react-native unavailable. Build a Dev Client (Expo Go unsupported)."
+      "ONNX native module missing from this install. Rebuild Android (npx expo run:android) — a Metro reload cannot add native code."
     );
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require("onnxruntime-react-native") as OrtNs & { default?: OrtNs };
+  const resolved = (mod.InferenceSession ? mod : mod.default) as OrtNs | undefined;
+  if (!resolved?.InferenceSession) {
+    throw new ModelsMissingError(
+      "ONNX InferenceSession missing after load. Rebuild the Dev Client with onnxruntime-react-native linked."
+    );
+  }
+  ort = resolved;
+  return ort;
 }
 
 function mockEmbedding(seed: number): number[] {
@@ -58,24 +74,29 @@ function mockEmbedding(seed: number): number[] {
   return l2Normalize(out);
 }
 
+async function assertModelFile(path: string, label: string) {
+  const info = await FileSystem.getInfoAsync(path);
+  if (!info.exists || (info.size != null && info.size < 50_000)) {
+    throw new ModelsMissingError(
+      `${label} model missing or empty (${path}). Run: npm run models:fetch then rebuild the app.`
+    );
+  }
+}
+
+function fsPath(uri: string) {
+  return uri.replace(/^file:\/\//, "");
+}
+
 export async function ensureFaceSessions() {
   if (mockEnabled()) return { mock: true as const };
   if (embedSession && livenessSession) return { mock: false as const };
 
-  const [embedInfo, liveInfo] = await Promise.all([
-    FileSystem.getInfoAsync(embedPath()),
-    FileSystem.getInfoAsync(livenessPath()),
-  ]);
+  await assertModelFile(embedPath(), "MobileFaceNet");
+  await assertModelFile(livenessPath(), "Anti-spoof");
 
-  if (!embedInfo.exists || !liveInfo.exists) {
-    throw new ModelsMissingError(
-      "ONNX models missing. Run: node scripts/fetch-models.mjs then rebuild the Dev Client, or set EXPO_PUBLIC_FACE_ML_MOCK=1 for stub inference."
-    );
-  }
-
-  const ORT = await loadOrt();
-  embedSession = await ORT.InferenceSession.create(embedPath());
-  livenessSession = await ORT.InferenceSession.create(livenessPath());
+  const ORT = loadOrt();
+  embedSession = await ORT.InferenceSession.create(fsPath(embedPath()));
+  livenessSession = await ORT.InferenceSession.create(fsPath(livenessPath()));
   return { mock: false as const };
 }
 
@@ -83,7 +104,7 @@ export async function runEmbedding(inputNchw: Float32Array): Promise<number[]> {
   if (mockEnabled()) return mockEmbedding(Math.abs(inputNchw[10] * 1000) || 42);
 
   await ensureFaceSessions();
-  const ORT = await loadOrt();
+  const ORT = loadOrt();
   if (!embedSession) throw new ModelsMissingError("Embedding session not ready");
 
   const inputName = embedSession.inputNames[0];
@@ -109,7 +130,7 @@ export async function runLiveness(inputNchw: Float32Array): Promise<{
   }
 
   await ensureFaceSessions();
-  const ORT = await loadOrt();
+  const ORT = loadOrt();
   if (!livenessSession) throw new ModelsMissingError("Liveness session not ready");
 
   const inputName = livenessSession.inputNames[0];
@@ -125,10 +146,36 @@ export async function runLiveness(inputNchw: Float32Array): Promise<{
   const sum = exps.reduce((a, b) => a + b, 0) || 1;
   const probs = exps.map((e) => e / sum);
 
-  const liveIdx = probs.length >= 2 ? 1 : 0;
-  const spoofIdx = 0;
-  const liveness = probs[liveIdx] ?? 0;
-  const spoof = probs.length >= 2 ? probs[spoofIdx] : 1 - liveness;
+  let liveness: number;
+  let spoof: number;
+  if (probs.length >= 3) {
+    // Upstream Silent-Face MiniFASNet training labels: [fake, real, fake]
+    // (HF card saying [live,print,replay] contradicts bit-equivalent upstream).
+    const asSilent = {
+      liveness: probs[1] ?? 0,
+      spoof: (probs[0] ?? 0) + (probs[2] ?? 0),
+    };
+    // Alternate HF-card order: [live, print, replay]
+    const asHf = {
+      liveness: probs[0] ?? 0,
+      spoof: (probs[1] ?? 0) + (probs[2] ?? 0),
+    };
+    // ponytail: pick the reading that maximizes live — log raw to calibrate later
+    if (asSilent.liveness >= asHf.liveness) {
+      liveness = asSilent.liveness;
+      spoof = asSilent.spoof;
+    } else {
+      liveness = asHf.liveness;
+      spoof = asHf.spoof;
+    }
+  } else if (probs.length >= 2) {
+    // 2-class: [spoof, live]
+    spoof = probs[0] ?? 0;
+    liveness = probs[1] ?? 0;
+  } else {
+    liveness = probs[0] ?? 0;
+    spoof = 1 - liveness;
+  }
 
   return { liveness, spoof, raw: probs };
 }

@@ -1,20 +1,59 @@
 import { api } from "@/services/api";
 import type { Employee } from "@/types";
 import { useAuthStore } from "@/store/authStore";
-import { DEV_LOGIN_PHONE, DEV_LOGIN_PIN, SKIP_LOGIN } from "@/constants/dev";
+import {
+  DEV_LOGIN_IDENTIFIER,
+  DEV_LOGIN_PASSWORD,
+  SKIP_LOGIN,
+} from "@/constants/dev";
+import {
+  LoginError,
+  parseLoginFailure,
+  resolveLoginIdentifier,
+} from "@/services/loginErrors";
+import { getDeviceIdentity } from "@/services/deviceIdentity";
 
-export async function loginWithPin(input: {
-  phone?: string;
-  email?: string;
-  employeeId?: string;
-  pin: string;
-}) {
-  const { data } = await api.login(input);
-  if (!data?.success || !data.token || !data.employee) {
-    throw new Error(data?.error || "Login failed");
+export type LoginResult = {
+  employee: Employee;
+};
+
+export async function loginWithPassword(input: {
+  identifier: string;
+  password: string;
+}): Promise<LoginResult> {
+  const id = resolveLoginIdentifier(input.identifier);
+  if (!id.username && !id.phone && !id.email) {
+    throw new LoginError("credentials", "Enter your username, phone, or email.");
   }
-  await useAuthStore.getState().setSession(data.token, data.employee as Employee);
-  return data.employee as Employee;
+  if (!input.password.trim()) {
+    throw new LoginError("credentials", "Password is required.");
+  }
+
+  try {
+    const device = await getDeviceIdentity();
+    const { data } = await api.login({
+      ...id,
+      password: input.password.trim(),
+      ...device,
+    });
+    if (!data?.success || !data.token || !data.employee) {
+      throw new LoginError("unknown", data?.error || "Login failed");
+    }
+    await useAuthStore.getState().setSession(data.token, data.employee as Employee);
+    return { employee: data.employee as Employee };
+  } catch (err) {
+    if (err instanceof LoginError) throw err;
+    throw parseLoginFailure(err);
+  }
+}
+
+export async function logoutMobileSession() {
+  try {
+    await api.logoutMobileSession();
+  } catch {
+    // Local sign-out must still work if the phone is offline. The server session
+    // remains authoritative and can be released by an administrator if needed.
+  }
 }
 
 /** Silent session for SKIP_LOGIN builds — tries ERP, else local stub so UI opens. */
@@ -23,28 +62,21 @@ export async function ensureDevSession() {
   const store = useAuthStore.getState();
   if (store.isAuthenticated && store.employee) return;
 
-  const phones = [
-    DEV_LOGIN_PHONE,
-    "+971 50 456 7890",
-    "+971504567890",
-    "0504567890",
-    "4567890",
-  ];
-
-  for (const phone of phones) {
-    try {
-      await loginWithPin({ phone, pin: DEV_LOGIN_PIN });
-      return;
-    } catch {
-      /* try next */
-    }
+  try {
+    await loginWithPassword({
+      identifier: DEV_LOGIN_IDENTIFIER,
+      password: DEV_LOGIN_PASSWORD,
+    });
+    return;
+  } catch {
+    /* fall through to stub */
   }
 
   // ponytail: offline stub so we can ship UI without a matching Vercel employee
   const stub: Employee = {
     id: "dev-skip-login",
     name: "Dev Technician",
-    phone: DEV_LOGIN_PHONE,
+    phone: DEV_LOGIN_IDENTIFIER,
     role: "technician",
     designation: "Field Technician",
     status: "active",

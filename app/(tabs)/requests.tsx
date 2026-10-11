@@ -73,10 +73,10 @@ export default function RequestsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, padding: 16 }}>
       <Text style={{ color: colors.text, fontSize: 22, fontWeight: "800", marginBottom: 4 }}>
-        Dispatch Inbox
+        Alerts
       </Text>
       <Text style={{ color: colors.textMuted, marginBottom: 14 }}>
-        Live job dispatches & priority alerts
+        New jobs, parts ready, and discount updates
       </Text>
 
       {query.isLoading ? (

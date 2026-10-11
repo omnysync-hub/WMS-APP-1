@@ -13,12 +13,15 @@ CREATE TABLE IF NOT EXISTS local_jobs (
 export const PENDING_MUTATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS pending_mutations (
   id TEXT PRIMARY KEY,
+  ownerId TEXT NOT NULL,
   endpoint TEXT NOT NULL,
   method TEXT NOT NULL,
   payloadJson TEXT NOT NULL,
   createdAt INTEGER NOT NULL,
   retryCount INTEGER DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_pending_mutations_owner_created
+  ON pending_mutations(ownerId, createdAt);
 `;
 
 export const FULL_SCHEMA = `${LOCAL_JOBS_DDL}\n${PENDING_MUTATIONS_DDL}`;

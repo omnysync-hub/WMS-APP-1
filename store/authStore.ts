@@ -3,6 +3,10 @@ import * as SecureStore from "expo-secure-store";
 import type { Employee } from "@/types";
 import { isSignedMobileToken } from "@/services/authToken";
 import { clearCachedEnrollmentEmbedding } from "@/services/face/embeddingCache";
+import { getDatabase } from "@/db/database";
+
+const KEY_TOKEN = "wms_auth_token";
+const KEY_EMPLOYEE = "wms_employee";
 
 type AuthState = {
   token: string | null;
@@ -30,33 +34,37 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         "Server returned an unsigned or malformed session token. Update the ERP mobile auth endpoint."
       );
     }
-    await SecureStore.setItemAsync("wms_auth_token", token);
-    await SecureStore.setItemAsync("wms_employee", JSON.stringify(employee));
+    await SecureStore.setItemAsync(KEY_TOKEN, token);
+    await SecureStore.setItemAsync(KEY_EMPLOYEE, JSON.stringify(employee));
+    // Clear leftover forced-PIN keys from older builds
+    await SecureStore.deleteItemAsync("wms_must_reset_pin").catch(() => {});
+    await SecureStore.deleteItemAsync("wms_pending_current_pin").catch(() => {});
     set({ token, employee, isAuthenticated: true });
   },
 
   setDevSession: async (employee) => {
-    await SecureStore.deleteItemAsync("wms_auth_token").catch(() => {});
-    await SecureStore.setItemAsync("wms_employee", JSON.stringify(employee));
+    await SecureStore.deleteItemAsync(KEY_TOKEN).catch(() => {});
+    await SecureStore.setItemAsync(KEY_EMPLOYEE, JSON.stringify(employee));
+    await SecureStore.deleteItemAsync("wms_must_reset_pin").catch(() => {});
+    await SecureStore.deleteItemAsync("wms_pending_current_pin").catch(() => {});
     set({ token: null, employee, isAuthenticated: true });
   },
 
   setEmployee: (employee) => {
-    SecureStore.setItemAsync("wms_employee", JSON.stringify(employee)).catch(() => {});
+    SecureStore.setItemAsync(KEY_EMPLOYEE, JSON.stringify(employee)).catch(() => {});
     set({ employee });
   },
 
   hydrate: async () => {
     try {
       const [token, raw] = await Promise.all([
-        SecureStore.getItemAsync("wms_auth_token"),
-        SecureStore.getItemAsync("wms_employee"),
+        SecureStore.getItemAsync(KEY_TOKEN),
+        SecureStore.getItemAsync(KEY_EMPLOYEE),
       ]);
 
-      // Force re-login if persisted token is pre-hardening (unsigned) format
       if (token && !isSignedMobileToken(token)) {
-        await SecureStore.deleteItemAsync("wms_auth_token");
-        await SecureStore.deleteItemAsync("wms_employee");
+        await SecureStore.deleteItemAsync(KEY_TOKEN);
+        await SecureStore.deleteItemAsync(KEY_EMPLOYEE);
         if (raw) {
           try {
             const emp = JSON.parse(raw) as Employee;
@@ -85,8 +93,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (empId) {
       await clearCachedEnrollmentEmbedding(empId);
     }
-    await SecureStore.deleteItemAsync("wms_auth_token");
-    await SecureStore.deleteItemAsync("wms_employee");
+    await SecureStore.deleteItemAsync(KEY_TOKEN);
+    await SecureStore.deleteItemAsync(KEY_EMPLOYEE);
+    await SecureStore.deleteItemAsync("wms_must_reset_pin").catch(() => {});
+    await SecureStore.deleteItemAsync("wms_pending_current_pin").catch(() => {});
+    await getDatabase()
+      .then((db) => db.execAsync("DELETE FROM pending_mutations; DELETE FROM local_jobs;"))
+      .catch(() => {});
     set({ token: null, employee: null, isAuthenticated: false });
   },
 

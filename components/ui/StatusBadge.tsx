@@ -6,7 +6,12 @@ const MAP: Record<string, string> = {
   Accepted: colors.primary,
   InProgress: "#3B82F6",
   Paused: colors.textDim,
+  AwaitingFeedback: colors.high,
   CompletedPendingVerification: colors.success,
+  Finalized: colors.success,
+  Verified: colors.success,
+  TechnicianReassigned: colors.textDim,
+  Cancelled: colors.textDim,
   Completed: colors.success,
   Pending: colors.high,
   Approved: colors.success,
@@ -21,27 +26,49 @@ const MAP: Record<string, string> = {
   acknowledged: colors.primary,
 };
 
+const FRIENDLY: Record<string, string> = {
+  Assigned: "New job",
+  Accepted: "Accepted",
+  InProgress: "Working",
+  Paused: "Paused",
+  AwaitingFeedback: "Feedback next",
+  CompletedPendingVerification: "Done",
+  Finalized: "Done",
+  Verified: "Done",
+  TechnicianReassigned: "Reassigned",
+  Cancelled: "Cancelled",
+  Completed: "Done",
+  pending: "Waiting",
+  accepted: "Accepted",
+  rejected: "Declined",
+  acknowledged: "Seen",
+};
+
 export function StatusBadge({
   label,
   tone,
+  friendly,
 }: {
   label: string;
   tone?: string;
+  friendly?: boolean;
 }) {
-  const bg = MAP[tone ?? label] ?? colors.surfaceElevated;
+  const raw = MAP[tone ?? label] ?? colors.surfaceElevated;
+  const bg = typeof raw === "string" ? raw : colors.surfaceElevated;
+  const text = friendly ? FRIENDLY[label] ?? String(label ?? "") : String(label ?? "");
   return (
     <View
       style={{
-        backgroundColor: bg + "33",
+        backgroundColor: `${bg}33`,
         borderColor: bg,
         borderWidth: 1,
-        paddingHorizontal: 8,
-        paddingVertical: 3,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
         borderRadius: 999,
         alignSelf: "flex-start",
       }}
     >
-      <Text style={{ color: bg, fontSize: 11, fontWeight: "700" }}>{label}</Text>
+      <Text style={{ color: bg, fontSize: 11, fontWeight: "800" }}>{text || "—"}</Text>
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import { View } from "react-native";
+import { CheckCircle2, PauseCircle, Play, ThumbsUp, RotateCcw } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { colors } from "@/constants/theme";
 import type { JobStatus } from "@/types";
@@ -8,6 +9,7 @@ export function JobActionToolbar({
   loading,
   onAccept,
   onStart,
+  onResume,
   onPause,
   onComplete,
 }: {
@@ -15,6 +17,7 @@ export function JobActionToolbar({
   loading?: boolean;
   onAccept: () => void;
   onStart: () => void;
+  onResume: () => void;
   onPause: () => void;
   onComplete: () => void;
 }) {
@@ -30,19 +33,52 @@ export function JobActionToolbar({
         backgroundColor: colors.background,
         borderTopWidth: 1,
         borderTopColor: colors.border,
-        gap: 8,
+        gap: 10,
       }}
     >
       {status === "Assigned" && (
-        <Button title="Accept Work Order" loading={loading} onPress={onAccept} />
+        <Button
+          title="Accept this job"
+          size="lg"
+          loading={loading}
+          onPress={onAccept}
+          icon={<ThumbsUp size={20} color="#fff" />}
+        />
       )}
-      {(status === "Accepted" || status === "Paused") && (
-        <Button title="Start Job (Clock In Site GPS)" loading={loading} onPress={onStart} />
+      {status === "Accepted" && (
+        <Button
+          title="I'm on site — start"
+          size="lg"
+          loading={loading}
+          onPress={onStart}
+          icon={<Play size={20} color="#fff" />}
+        />
+      )}
+      {status === "Paused" && (
+        <Button
+          title="Resume work"
+          size="lg"
+          loading={loading}
+          onPress={onResume}
+          icon={<RotateCcw size={20} color="#fff" />}
+        />
       )}
       {status === "InProgress" && (
         <>
-          <Button title="Complete Job" loading={loading} onPress={onComplete} />
-          <Button title="Pause Work for Today" variant="secondary" loading={loading} onPress={onPause} />
+          <Button
+            title="Finish & take payment"
+            size="lg"
+            loading={loading}
+            onPress={onComplete}
+            icon={<CheckCircle2 size={20} color="#fff" />}
+          />
+          <Button
+            title="Pause for today"
+            variant="secondary"
+            loading={loading}
+            onPress={onPause}
+            icon={<PauseCircle size={18} color={colors.text} />}
+          />
         </>
       )}
     </View>

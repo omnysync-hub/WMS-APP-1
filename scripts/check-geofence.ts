@@ -1,9 +1,5 @@
-/**
- * ponytail: tiny self-check for haversine — run with:
- * npx ts-node --compiler-options '{"module":"commonjs"}' -e "require('./services/attendanceService')"
- * Prefer: node -e after compile, or just trust unit math below via tsc.
- */
-import { distanceMeters } from "../services/attendanceService";
+/** Platform-free self-check for the geofence distance calculation. */
+import { distanceMeters } from "../lib/geofence";
 
 const d = distanceMeters(25.2048, 55.2708, 25.2048, 55.2708);
 if (d > 0.01) throw new Error(`expected ~0m, got ${d}`);

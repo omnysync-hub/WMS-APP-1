@@ -5,7 +5,8 @@ const path = require("path");
 const config = getDefaultConfig(__dirname);
 config.resolver.extraNodeModules = {
   ...(config.resolver.extraNodeModules || {}),
-  buffer: path.resolve(__dirname, "node_modules/buffer"),
+  buffer: path.resolve(__dirname, "node_modules", "buffer"),
 };
+config.resolver.assetExts = [...new Set([...(config.resolver.assetExts || []), "onnx"])];
 
 module.exports = withNativeWind(config, { input: "./global.css" });

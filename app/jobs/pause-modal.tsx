@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Alert, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -12,11 +12,17 @@ export default function PauseModal() {
   const router = useRouter();
   const qc = useQueryClient();
   const actor = useAuthStore((s) => s.employee?.name) ?? "Technician";
-  const [note, setNote] = useState("");
+  const [doneToday, setDoneToday] = useState("");
+  const [remaining, setRemaining] = useState("");
+  const [reason, setReason] = useState("");
 
   const mutation = useMutation({
-    mutationFn: () =>
-      transitionJob(jobId!, { action: "pause", note, actor }),
+    mutationFn: () => {
+      const note = `Work paused for today: Fitted ${doneToday || "?"} units; ${
+        remaining || "?"
+      } units remaining for tomorrow. Reason: ${reason.trim()}`;
+      return transitionJob(jobId!, { action: "pause", note, actor });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["job", jobId] });
       qc.invalidateQueries({ queryKey: ["jobs"] });
@@ -27,32 +33,68 @@ export default function PauseModal() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background, padding: 16 }}>
-      <Text style={{ color: colors.textMuted, marginBottom: 8 }}>
-        Partial completion note (units done vs remaining)
+      <Text style={{ color: colors.textDim, marginBottom: 6 }}>Units fitted today</Text>
+      <TextInput
+        value={doneToday}
+        onChangeText={setDoneToday}
+        keyboardType="number-pad"
+        placeholder="e.g. 3"
+        placeholderTextColor={colors.textDim}
+        style={field}
+      />
+
+      <Text style={{ color: colors.textDim, marginTop: 12, marginBottom: 6 }}>
+        Units remaining tomorrow
       </Text>
       <TextInput
-        value={note}
-        onChangeText={setNote}
-        multiline
-        placeholder="Fitted 3 ACs; 2 remaining for tomorrow"
+        value={remaining}
+        onChangeText={setRemaining}
+        keyboardType="number-pad"
+        placeholder="e.g. 2"
         placeholderTextColor={colors.textDim}
-        style={{
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-          borderWidth: 1,
-          borderRadius: 12,
-          color: colors.text,
-          minHeight: 120,
-          padding: 12,
-          textAlignVertical: "top",
-        }}
+        style={field}
       />
+
+      <Text style={{ color: colors.textDim, marginTop: 12, marginBottom: 6 }}>
+        Reason & scheduled resume
+      </Text>
+      <TextInput
+        value={reason}
+        onChangeText={setReason}
+        multiline
+        placeholder="Daylight ended; resume 8am tomorrow"
+        placeholderTextColor={colors.textDim}
+        style={[field, { minHeight: 100, textAlignVertical: "top" }]}
+      />
+
+      <Text style={{ color: colors.textDim, marginTop: 14, fontSize: 12, lineHeight: 18 }}>
+        Optional tips (not required to resume later): stock usually stays with you on site.
+        Returning parts to the storekeeper is rare. You may visit the accountant for partial
+        hisaab if useful — Resume will still work without it.
+      </Text>
+
       <Button
         title="Pause Job"
         loading={mutation.isPending}
         style={{ marginTop: 16 }}
-        onPress={() => mutation.mutate()}
+        onPress={() => {
+          if (!reason.trim()) {
+            Alert.alert("Reason required");
+            return;
+          }
+          mutation.mutate();
+        }}
       />
     </View>
   );
 }
+
+const field = {
+  backgroundColor: colors.surface,
+  borderColor: colors.border,
+  borderWidth: 1,
+  borderRadius: 12,
+  color: colors.text,
+  padding: 12,
+  minHeight: 48,
+} as const;

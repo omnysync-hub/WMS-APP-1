@@ -19,6 +19,33 @@ export function averageEmbeddings(vectors: number[][]): number[] {
   return l2Normalize(avg);
 }
 
+/**
+ * Average embeddings, drop outliers far from the mean, then re-average.
+ * Makes multi-angle enrollments more robust than a raw mean of everything.
+ */
+export function robustAverageEmbeddings(
+  vectors: number[][],
+  minKeepRatio = 0.5,
+  outlierCosineMin = 0.35
+): { embedding: number[]; kept: number; dropped: number } {
+  if (vectors.length < 2) {
+    return { embedding: averageEmbeddings(vectors), kept: vectors.length, dropped: 0 };
+  }
+  const provisional = averageEmbeddings(vectors);
+  const kept = vectors.filter((v) => cosineSimilarity(v, provisional) >= outlierCosineMin);
+  const minKeep = Math.max(2, Math.ceil(vectors.length * minKeepRatio));
+  if (kept.length < minKeep) {
+    throw new Error(
+      `Only ${kept.length}/${vectors.length} shots agreed. Retake in even light — stay in the oval.`
+    );
+  }
+  return {
+    embedding: averageEmbeddings(kept),
+    kept: kept.length,
+    dropped: vectors.length - kept.length,
+  };
+}
+
 /** Cosine similarity for L2-normalized vectors ≈ dot product. */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) throw new Error("Vector length mismatch");

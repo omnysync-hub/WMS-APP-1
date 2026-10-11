@@ -35,9 +35,13 @@ export type JobStatus =
   | "Accepted"
   | "InProgress"
   | "Paused"
+  | "AwaitingFeedback"
   | "CompletedPendingVerification"
+  | "Finalized"
+  | "Verified"
   | "Completed"
   | "Cancelled"
+  | "TechnicianReassigned"
   | string;
 
 export type JobItem = {
@@ -47,6 +51,16 @@ export type JobItem = {
   quantityPlanned?: number;
   quantityActual?: number | null;
   unitPrice?: number;
+  unitRate?: number;
+};
+
+export type JobAssignment = {
+  id: string;
+  jobId?: string;
+  technicianId: string;
+  role?: "primary" | "assistant" | string;
+  status?: string;
+  technician?: { id: string; name?: string; phone?: string | null };
 };
 
 export type Job = {
@@ -54,18 +68,54 @@ export type Job = {
   jobNumber: string;
   status: JobStatus;
   priority?: string;
+  jobType?: string | null;
+  manualJobNumber?: string | null;
   scheduledAt?: string | null;
+  createdAt?: string | null;
   customerName?: string;
   customerPhone?: string | null;
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
   notes?: string | null;
+  remarks?: string | null;
+  discountAmount?: number | null;
+  discountReason?: string | null;
   items?: JobItem[];
+  assignedTechnicianId?: string | null;
+  parentJobId?: string | null;
+  reassignedFromJobId?: string | null;
+  parentJob?: { id: string; jobNumber: string; status?: string } | null;
+  childJobs?: { id: string; jobNumber: string; status?: string }[];
+  assignments?: JobAssignment[];
+  inventoryRequests?: {
+    id?: string;
+    item?: string;
+    qtyRequested?: number;
+    status?: string;
+  }[];
+  expenseClaims?: {
+    id: string;
+    amount: number;
+    note?: string | null;
+    category?: string | null;
+    allocationGroupId?: string | null;
+    status?: string | null;
+    createdAt?: string | null;
+  }[];
+  careOfParty?: {
+    companyName?: string;
+    personName?: string;
+    phone?: string | null;
+  } | null;
   customer?: {
     name?: string;
     phone?: string;
+    email?: string | null;
     address?: string;
+    addressText?: string;
+    lat?: number | null;
+    lng?: number | null;
   };
 };
 
@@ -126,6 +176,8 @@ export type AttendanceSubmitPayload = {
   livenessScore?: number;
   deviceId: string;
   notes?: string;
+  /** Sent only for an online backup check after face matching is exhausted. */
+  backupPassword?: string;
 };
 
 export type AttendanceSubmitResult = {

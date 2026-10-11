@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 import { Card } from "@/components/ui/Card";
-import { colors, GEOFENCE_RADIUS_M } from "@/constants/theme";
+import { colors, GEOFENCE_RADIUS_M, space, type } from "@/constants/theme";
 
 export function GeofenceMapCard({
   label,
@@ -12,26 +12,37 @@ export function GeofenceMapCard({
   radiusM?: number;
 }) {
   const within = distanceM != null && distanceM <= radiusM;
+  const statusLabel =
+    distanceM == null ? "Finding your location…" : within ? "At site" : "Away from site";
+  const statusColor =
+    distanceM == null ? colors.textMuted : within ? colors.success : colors.high;
+
   return (
     <Card>
-      <Text style={{ color: colors.textMuted, fontSize: 12 }}>Geofence</Text>
-      <Text style={{ color: colors.text, fontWeight: "700", fontSize: 16, marginTop: 4 }}>
+      <Text style={{ color: colors.textDim, ...type.caption }}>Your site</Text>
+      <Text style={{ color: colors.text, fontWeight: "800", fontSize: 18, marginTop: space.xs }}>
         {label}
       </Text>
       <Text
         style={{
-          color: within ? colors.success : colors.high,
-          marginTop: 10,
-          fontWeight: "600",
+          color: statusColor,
+          marginTop: space.md,
+          fontWeight: "800",
+          fontSize: 17,
         }}
       >
+        {statusLabel}
+      </Text>
+      <Text style={{ color: colors.textMuted, marginTop: space.xs, ...type.subtitle }}>
         {distanceM == null
-          ? "Locating…"
-          : `You are ${Math.round(distanceM)}m from ${label} (${within ? "Within" : "Outside"} ${radiusM}m zone)`}
+          ? "Turn on GPS if this stays blank."
+          : within
+            ? `${Math.round(distanceM)}m from the check-in zone — you’re good.`
+            : `${Math.round(distanceM)}m from ${label} (need to be within ${radiusM}m).`}
       </Text>
       <View
         style={{
-          marginTop: 12,
+          marginTop: space.md,
           height: 8,
           borderRadius: 999,
           backgroundColor: colors.surfaceElevated,
@@ -40,7 +51,10 @@ export function GeofenceMapCard({
       >
         <View
           style={{
-            width: `${Math.max(8, Math.min(100, 100 - ((distanceM ?? radiusM) / (radiusM * 2)) * 100))}%`,
+            width: `${Math.max(
+              8,
+              Math.min(100, 100 - ((distanceM ?? radiusM) / (radiusM * 2)) * 100)
+            )}%`,
             height: "100%",
             backgroundColor: within ? colors.primary : colors.high,
           }}

@@ -1,34 +1,58 @@
 /**
- * PILOT THRESHOLDS — conservative defaults for logging & soft gates.
- * Do NOT treat as production finals. Recalibrate after a 5–10 employee
- * office pilot with real lighting / glasses / spoof attempts.
- *
- * Ask product/HR before locking these numbers.
+ * Attendance face thresholds — tuned for on-device MobileFaceNet + MiniFASNet.
+ * Not a mathematical guarantee of zero FAR; rejects spoof/low-quality aggressively.
  */
 export const FACE_THRESHOLDS = {
-  /** Cosine similarity vs enrolled embedding. Start ~0.65 (ArcFace-ish scale). */
-  cosineSimilarityMin: 0.65,
+  /** Cosine vs enrolled embedding (L2-normalized). */
+  cosineSimilarityMin: 0.52,
 
   /**
-   * Model-dependent liveness score (higher = more live).
-   * Silent-Face MiniFASNet: use real-class probability after softmax.
+   * Each enroll vector must be this close to the provisional mean (not pairwise).
+   * Lower than old pairwise gate so left/right angles can contribute.
    */
-  livenessMin: 0.80,
+  enrollmentConsistencyMin: 0.32,
 
-  /** Max failed match attempts before PIN/manual fallback flagged for HR. */
+  /** MiniFASNet live-class probability after softmax (check-in, no challenge). */
+  livenessMin: 0.55,
+
+  /** Reject if spoof class is this high (check-in, no challenge). */
+  spoofMax: 0.5,
+
+  /** After blink/head challenge — ONNX is secondary. */
+  livenessMinWithChallenge: 0.4,
+  spoofMaxWithChallenge: 0.65,
+
+  /** Enrollment: softer ONNX floor — oval framing + consistency still required. */
+  enrollmentLivenessMin: 0.45,
+  enrollmentSpoofMax: 0.55,
+
+  /** Failed match attempts before flagged PIN override. */
   maxMatchRetries: 2,
 
-  /** Randomized active challenge (blink / head turn) rate. */
-  challengeProbability: 0.18,
+  /** Check-in always requires an active challenge (blink or head turn). */
+  checkInChallengeRequired: true,
 
-  /** Soft “far from zone” multiplier (phase 1, unchanged). */
+  /** Enrollment: no blink UI — ONNX liveness on each shot. */
+  enrollmentChallengeOnFirstShot: false,
+
+  /** Soft “far from zone” multiplier for client warning. */
   farWarningMultiplier: 3,
 
-  /** Expected MobileFaceNet / ArcFace embedding size (ERP contract). */
+  /** ERP embedding contract. */
   embeddingDim: 512,
 
-  /** Enrollment captures required. */
-  enrollmentShots: 4,
+  /** Multi-angle enrollment captures (averaged into one 512-d template). */
+  enrollmentShots: 12,
+
+  /** Preview quality */
+  minFaceAreaRatio: 0.08,
+  minFacePx: 100,
+  maxCenterOffset: 0.28,
+  maxYawDeg: 32,
+  maxPitchDeg: 28,
+  minEyeOpenForCapture: 0.25,
+  minBrightness: 35,
+  maxBrightness: 235,
 } as const;
 
 export type FaceScoreLog = {
@@ -40,11 +64,9 @@ export type FaceScoreLog = {
   outcome: string;
 };
 
-/** In-memory ring for pilot calibration — scores only, never embeddings. */
 const scoreLog: FaceScoreLog[] = [];
 
 export function logFaceScores(entry: Omit<FaceScoreLog, "at">) {
-  // Explicit allow-list — never accept or forward embedding vectors
   const row: FaceScoreLog = {
     at: new Date().toISOString(),
     outcome: entry.outcome,
@@ -56,11 +78,16 @@ export function logFaceScores(entry: Omit<FaceScoreLog, "at">) {
   scoreLog.push(row);
   if (scoreLog.length > 200) scoreLog.shift();
   if (__DEV__) {
-    console.log("[face-pilot]", JSON.stringify(row));
+    console.log("[face]", JSON.stringify(row));
   }
   return row;
 }
 
 export function getFaceScoreLog() {
   return [...scoreLog];
+}
+
+/** ERP / HR screens expect 0–100 style match scores. */
+export function matchScoreForErp(cosine: number) {
+  return Math.round(Math.max(0, Math.min(1, cosine)) * 1000) / 10;
 }

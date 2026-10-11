@@ -1,8 +1,7 @@
 import axios from "axios";
-import * as Application from "expo-application";
-import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
+import { distanceMeters } from "@/lib/geofence";
 import { api } from "@/services/api";
+import { getDeviceIdentity } from "@/services/deviceIdentity";
 import type {
   AttendanceLog,
   AttendanceSubmitPayload,
@@ -10,33 +9,12 @@ import type {
   GeofenceZone,
 } from "@/types";
 
-const DEVICE_ID_KEY = "wms_device_id";
-
 export async function getStableDeviceId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
-  if (existing) return existing;
-
-  let hardwareId: string | null = null;
-  try {
-    if (Platform.OS === "android") {
-      hardwareId = Application.getAndroidId() || null;
-    } else if (Platform.OS === "ios") {
-      hardwareId = (await Application.getIosIdForVendorAsync()) || null;
-    }
-  } catch {
-    hardwareId = null;
-  }
-
-  const id =
-    hardwareId ||
-    `wms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
-
-  await SecureStore.setItemAsync(DEVICE_ID_KEY, id);
-  return id;
+  return (await getDeviceIdentity()).deviceId;
 }
 
-export async function fetchGeofenceZones(): Promise<GeofenceZone[]> {
-  const { data } = await api.getGeofenceZones(true);
+export async function fetchGeofenceZones(employeeId?: string): Promise<GeofenceZone[]> {
+  const { data } = await api.getGeofenceZones(true, employeeId);
   return (data?.zones ?? []) as GeofenceZone[];
 }
 
@@ -48,22 +26,7 @@ export async function fetchAttendance(employeeId: string): Promise<AttendanceLog
   return logs;
 }
 
-/** Haversine distance in meters */
-export function distanceMeters(
-  lat1: number,
-  lng1: number,
-  lat2: number,
-  lng2: number
-) {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+export { distanceMeters } from "@/lib/geofence";
 
 export type NearestZoneResult = {
   zone: GeofenceZone;

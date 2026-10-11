@@ -1,5 +1,5 @@
 import { View, type ViewProps } from "react-native";
-import { colors } from "@/constants/theme";
+import { colors, radius, space } from "@/constants/theme";
 
 export function Card({ style, ...rest }: ViewProps) {
   return (
@@ -7,10 +7,10 @@ export function Card({ style, ...rest }: ViewProps) {
       style={[
         {
           backgroundColor: colors.surface,
-          borderRadius: 14,
+          borderRadius: radius.lg,
           borderWidth: 1,
           borderColor: colors.border,
-          padding: 14,
+          padding: space.lg,
         },
         style,
       ]}

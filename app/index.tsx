@@ -16,10 +16,10 @@ export default function Index() {
   }
 
   if (!isAuthenticated) {
-    if (SKIP_LOGIN) return <Redirect href="/(tabs)" />;
+    if (SKIP_LOGIN) return <Redirect href={"/(tabs)/dashboard" as never} />;
     return <Redirect href="/(auth)/login" />;
   }
 
-  if (employee?.role === "technician") return <Redirect href="/(tabs)" />;
+  if (employee?.role === "technician") return <Redirect href={"/(tabs)/dashboard" as never} />;
   return <Redirect href="/(tabs)/attendance" />;
 }

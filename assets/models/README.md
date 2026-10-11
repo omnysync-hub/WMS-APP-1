@@ -1,23 +1,22 @@
-# Bundled ONNX models (phase 2)
+# Bundled ONNX models (on-device face attendance)
 
-Required files (copied into the app document directory by `node scripts/fetch-models.mjs`):
-
-| File | Purpose | Dim / notes | License check |
-| :--- | :--- | :--- | :--- |
-| `mobilefacenet_int8.onnx` | Face embedding | **Must output exactly 512 floats** (ERP contract) | Prefer Apache-2.0 / MIT commercial-friendly weights only |
-| `silent_face_anti_spoof_int8.onnx` | Silent-Face / MiniFASNet anti-spoof | 2-class logits → softmax live vs spoof | MiniVision Silent-Face-Anti-Spoofing (verify Apache-2.0 before shipping) |
+| File | Purpose | Notes |
+| :--- | :--- | :--- |
+| `mobilefacenet_int8.onnx` | 512-d face embedding | Hailo MIT ArcFace MobileFaceNet (`mbf.onnx`), 112×112 |
+| `silent_face_anti_spoof_int8.onnx` | Anti-spoof / liveness | MiniFASNetV2 ONNX (Silent-Face), 80×80, 3-class live/print/replay |
 
 ## Fetch
 
 ```bash
-node scripts/fetch-models.mjs
+npm run models:fetch
 ```
 
-Place files under `assets/models/` (repo) and they are also copied to the device document dir on first run when you ship via EAS with assets included — or load from documentDirectory after the script.
-
-**Do not commit large binaries if your org policy forbids it** — use EAS secrets / CI artifact download instead.
+Override URLs with `WMS_MOBILEFACENET_URL` / `WMS_ANTISPOOF_URL` if needed.
 
 ## Runtime
 
-- Inference via `onnxruntime-react-native` on the JS/native ORT thread.
-- Set `EXPO_PUBLIC_FACE_ML_MOCK=1` only for Dev Client UI testing without models (stub scores).
+- Copied to `documentDirectory/models` on launch via `bootstrapFaceModels`
+- Inference: `onnxruntime-react-native`
+- `EXPO_PUBLIC_FACE_ML_MOCK=1` only in `__DEV__` for UI stubs — never in release
+
+Rebuild the Dev Client / APK after changing models.

@@ -16,6 +16,22 @@ const TYPES = [
 
 const CHIPS = ["Medical appointment", "Family event", "Personal rest"];
 
+function parseIsoDate(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+    ? date
+    : null;
+}
+
+function todayUtc(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
 export default function ApplyLeaveScreen() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -35,6 +51,13 @@ export default function ApplyLeaveScreen() {
     const bal = leaves.data?.balances?.[leaveType];
     return bal?.leaveTypeId as string | undefined;
   }, [leaves.data, leaveType]);
+
+  const dateRange = useMemo(() => {
+    const start = parseIsoDate(startDate);
+    const end = parseIsoDate(endDate);
+    if (!start || !end || end < start) return null;
+    return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  }, [startDate, endDate]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -79,8 +102,9 @@ export default function ApplyLeaveScreen() {
       <Text style={{ color: colors.textDim, marginBottom: 6 }}>Start date (YYYY-MM-DD)</Text>
       <TextInput
         value={startDate}
-        onChangeText={setStartDate}
-        placeholder="2026-09-25"
+        onChangeText={(value) => setStartDate(value.replace(/[^0-9-]/g, "").slice(0, 10))}
+        keyboardType="numbers-and-punctuation"
+        placeholder="YYYY-MM-DD"
         placeholderTextColor={colors.textDim}
         style={field}
       />
@@ -90,11 +114,18 @@ export default function ApplyLeaveScreen() {
       </Text>
       <TextInput
         value={endDate}
-        onChangeText={setEndDate}
-        placeholder="2026-09-26"
+        onChangeText={(value) => setEndDate(value.replace(/[^0-9-]/g, "").slice(0, 10))}
+        keyboardType="numbers-and-punctuation"
+        placeholder="YYYY-MM-DD"
         placeholderTextColor={colors.textDim}
         style={field}
       />
+
+      {dateRange ? (
+        <Text style={{ color: colors.textMuted, marginTop: 8 }}>
+          {dateRange} day{dateRange === 1 ? "" : "s"} of leave
+        </Text>
+      ) : null}
 
       <Text style={{ color: colors.textDim, marginTop: 12, marginBottom: 6 }}>Reason</Text>
       <TextInput
@@ -130,6 +161,20 @@ export default function ApplyLeaveScreen() {
         onPress={() => {
           if (!startDate || !endDate) {
             Alert.alert("Dates required");
+            return;
+          }
+          const start = parseIsoDate(startDate);
+          const end = parseIsoDate(endDate);
+          if (!start || !end) {
+            Alert.alert("Check the dates", "Use a real date in YYYY-MM-DD format.");
+            return;
+          }
+          if (start < todayUtc()) {
+            Alert.alert("Start date has passed", "Choose today or a future date.");
+            return;
+          }
+          if (end < start) {
+            Alert.alert("Check the date range", "The end date cannot be before the start date.");
             return;
           }
           mutation.mutate();
