@@ -31,18 +31,23 @@ export async function loginWithPassword(input: {
 
   try {
     const device = await getDeviceIdentity();
-    const { data } = await api.login({
+    const res = await api.login({
       ...id,
       password: input.password.trim(),
       ...device,
     });
+    const data = res.data;
     if (!data?.success || !data.token || !data.employee) {
       throw new LoginError("unknown", data?.error || "Login failed");
     }
     await useAuthStore.getState().setSession(data.token, data.employee as Employee);
     return { employee: data.employee as Employee };
-  } catch (err) {
+  } catch (err: any) {
     if (err instanceof LoginError) throw err;
+    const serverError = err?.response?.data?.error || err?.message;
+    if (serverError && typeof serverError === "string") {
+      throw new LoginError("unknown", serverError);
+    }
     throw parseLoginFailure(err);
   }
 }

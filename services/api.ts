@@ -21,6 +21,8 @@ export let ERP_BASE_URL = DEFAULT_ERP_BASE_URL;
  * technician's Bearer token to an arbitrary host. Add new tenants here (requires an app build).
  */
 const KNOWN_ERP_ORIGINS = new Set<string>([
+  "https://softwareworkmanservices.com.pk",
+  "http://169.58.158.49",
   "https://hvac-erp-bay.vercel.app",
   "https://erp.workmanservices.pk",
 ]);
