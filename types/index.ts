@@ -52,6 +52,60 @@ export type JobItem = {
   quantityActual?: number | null;
   unitPrice?: number;
   unitRate?: number;
+  isService?: boolean;
+  type?: string;
+  itemType?: string;
+  category?: string;
+  sku?: string;
+};
+
+export type JobDiscountRequest = {
+  id: string;
+  jobId: string;
+  itemId?: string | null;
+  discountType: "percent" | "amount" | string;
+  discountValue: number;
+  requestedAmount: number;
+  approvedAmount?: number | null;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled" | string;
+  requestedByName?: string;
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+  decisionNote?: string | null;
+  createdAt: string;
+};
+
+/** Server-computed billing summary returned by GET /api/jobs/:id */
+export type JobBillingSummary = {
+  gross: number;
+  discount: number;
+  net: number;
+  customerPays: number;
+  isFoc: boolean;
+  referringCompany?: string | null;
+  focAmountReceived?: number;
+  focPaymentStatus?: "awaiting_company_payment" | "received" | null;
+  paymentCollectionMode?: string;
+  technicianCollects: boolean;
+  technicianExpectedCollection: number;
+  pendingDiscountRequests?: number;
+  /** Sales tax applied to this job's invoice (null/absent = no tax). Set in ERP Settings > Taxes. */
+  tax?: JobTaxInfo | null;
+  /** Amount the customer pays including tax. */
+  totalWithTax?: number;
+};
+
+export type JobTaxInfo = {
+  enabled: boolean;
+  code?: string | null;
+  name?: string | null;
+  ratePercent: number;
+  inclusive: boolean;
+  applyAfterDiscount: boolean;
+  rounding?: { mode?: "nearest" | "up" | "down"; decimals?: number };
+  taxAmount: number;
+  total: number;
 };
 
 export type JobAssignment = {
@@ -81,6 +135,13 @@ export type Job = {
   remarks?: string | null;
   discountAmount?: number | null;
   discountReason?: string | null;
+  /** FOC = referred by an external company: customer pays nothing, the company pays the office later */
+  isFoc?: boolean;
+  focReason?: string | null;
+  /** "technician" (collect on site) | "office" (office/accounts collects; technician collects nothing) */
+  paymentCollectionMode?: "technician" | "office" | string;
+  discountRequests?: JobDiscountRequest[];
+  billingSummary?: JobBillingSummary;
   items?: JobItem[];
   assignedTechnicianId?: string | null;
   parentJobId?: string | null;

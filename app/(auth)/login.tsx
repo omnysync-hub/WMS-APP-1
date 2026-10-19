@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Text,
   TextInput,
   Pressable,
   ScrollView,
+  View,
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import * as LocalAuthentication from "expo-local-authentication";
@@ -181,22 +183,56 @@ export default function LoginScreen() {
         }}
         keyboardShouldPersistTaps="handled"
       >
-        <Text
-          style={{
-            color: colors.primary,
-            fontSize: 14,
-            fontWeight: "800",
-            letterSpacing: 1.4,
-          }}
-        >
-          WORKMAN
-        </Text>
-        <Text style={{ color: colors.text, marginTop: space.sm, ...type.hero }}>
-          Field Companion
-        </Text>
-        <Text style={{ color: colors.textMuted, marginTop: space.sm, marginBottom: space.xl, ...type.subtitle }}>
-          Sign in with your work username and password from admin or HR.
-        </Text>
+        <View style={{ alignItems: "center", marginBottom: space.xl }}>
+          <View
+            style={{
+              width: 104,
+              height: 104,
+              borderRadius: 24,
+              backgroundColor: "#FFFFFF",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 10,
+              marginBottom: space.lg,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.25,
+              shadowRadius: 12,
+              elevation: 8,
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.2)",
+            }}
+          >
+            <Image
+              source={require("@/assets/workman-logo.png")}
+              style={{ width: "100%", height: "100%", resizeMode: "contain" }}
+            />
+          </View>
+          <Text
+            style={{
+              color: colors.primary,
+              fontSize: 13,
+              fontWeight: "900",
+              letterSpacing: 1.8,
+              textAlign: "center",
+            }}
+          >
+            WORKMAN SERVICES
+          </Text>
+          <Text style={{ color: colors.text, marginTop: 4, textAlign: "center", ...type.hero }}>
+            Field Companion
+          </Text>
+          <Text
+            style={{
+              color: colors.textMuted,
+              marginTop: space.xs,
+              textAlign: "center",
+              ...type.subtitle,
+            }}
+          >
+            Sign in with your work username and password from admin or HR.
+          </Text>
+        </View>
 
         {errorKind === "deactivated" && (
           <InlineBanner title="Access disabled" detail={errorMessage ?? undefined} tone="error" />

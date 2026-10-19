@@ -23,6 +23,12 @@ async function readBattery01(): Promise<number> {
   }
 }
 
+let inMemoryEmployeeId: string | null = null;
+
+export function setCachedTelemetryEmployee(id: string | null) {
+  inMemoryEmployeeId = id;
+}
+
 export async function sendLocationPing(
   employeeId: string,
   loc: Location.LocationObject,
@@ -45,7 +51,11 @@ export async function sendLocationPing(
 
 TaskManager.defineTask(TELEMETRY_TASK_NAME, async ({ data, error }) => {
   if (error) return;
-  const employeeId = await SecureStore.getItemAsync(KEY_TELEMETRY_EMPLOYEE);
+  let employeeId = inMemoryEmployeeId;
+  if (!employeeId) {
+    employeeId = await SecureStore.getItemAsync(KEY_TELEMETRY_EMPLOYEE);
+    if (employeeId) inMemoryEmployeeId = employeeId;
+  }
   if (!employeeId) return;
 
   const locations = (data as { locations?: Location.LocationObject[] } | undefined)

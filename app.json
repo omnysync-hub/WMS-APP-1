@@ -11,7 +11,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.workmanservices.technician",
       "infoPlist": {
-        "UIBackgroundModes": ["location", "fetch", "remote-notification"],
+        "UIBackgroundModes": ["location", "fetch", "remote-notification", "audio"],
         "NSLocationWhenInUseUsageDescription": "Workman Services needs your location for attendance geofencing and job site arrival.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Workman Services uses background location for job dispatch, arrival verification, and field safety while you are on shift.",
         "NSLocationAlwaysUsageDescription": "Workman Services uses background location for job dispatch, arrival verification, and field safety while you are on shift.",
@@ -22,7 +22,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#0D7A5F"
+        "backgroundColor": "#FFFFFF"
       },
       "package": "com.workmanservices.technician",
       "googleServicesFile": "./google-services.json",
@@ -38,7 +38,8 @@
         "POST_NOTIFICATIONS",
         "USE_FULL_SCREEN_INTENT",
         "WAKE_LOCK",
-        "ACCESS_NOTIFICATION_POLICY"
+        "ACCESS_NOTIFICATION_POLICY",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "web": {
@@ -51,6 +52,12 @@
       "expo-dev-client",
       "expo-task-manager",
       "onnxruntime-react-native",
+      [
+        "expo-audio",
+        {
+          "enableBackgroundPlayback": true
+        }
+      ],
       [
         "expo-location",
         {

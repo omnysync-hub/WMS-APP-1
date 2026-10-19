@@ -54,3 +54,61 @@ export async function requestTechnicianLocationPermissions(): Promise<LocationPe
 export function openAppLocationSettings() {
   void Linking.openSettings();
 }
+
+export type LocationEnforcementState = {
+  servicesEnabled: boolean;
+  foregroundGranted: boolean;
+  backgroundGranted: boolean;
+  permissionGranted: boolean;
+  canAskAgain: boolean;
+  isReady: boolean;
+};
+
+export async function checkLocationEnforcement(): Promise<LocationEnforcementState> {
+  try {
+    const servicesEnabled = await Location.hasServicesEnabledAsync();
+    const fg = await Location.getForegroundPermissionsAsync();
+    const bg = await Location.getBackgroundPermissionsAsync();
+    const foregroundGranted = fg.status === Location.PermissionStatus.GRANTED;
+    const backgroundGranted = bg.status === Location.PermissionStatus.GRANTED;
+    const permissionGranted = foregroundGranted && backgroundGranted;
+    return {
+      servicesEnabled,
+      foregroundGranted,
+      backgroundGranted,
+      permissionGranted,
+      canAskAgain: fg.canAskAgain !== false || bg.canAskAgain !== false,
+      isReady: servicesEnabled && permissionGranted,
+    };
+  } catch {
+    return {
+      servicesEnabled: false,
+      foregroundGranted: false,
+      backgroundGranted: false,
+      permissionGranted: false,
+      canAskAgain: true,
+      isReady: false,
+    };
+  }
+}
+
+export async function enableDeviceLocationProvider(): Promise<void> {
+  if (Platform.OS === "android") {
+    try {
+      await Location.enableNetworkProviderAsync();
+      const enabled = await Location.hasServicesEnabledAsync();
+      if (enabled) return;
+    } catch {
+      /* user rejected or provider not available; open location settings */
+    }
+
+    try {
+      // Direct intent to Android system Location screen
+      await Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS");
+      return;
+    } catch {
+      /* fallback to app settings */
+    }
+  }
+  openAppLocationSettings();
+}

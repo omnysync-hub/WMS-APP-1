@@ -43,3 +43,7 @@ yarn-error.*
 
 # face model fetch scratch
 .tmp-models/
+
+# Build artifacts
+*.apk
+*.aab

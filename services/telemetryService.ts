@@ -11,6 +11,7 @@ import {
 import {
   isTelemetryTaskRegistered,
   sendLocationPing,
+  setCachedTelemetryEmployee,
 } from "@/services/telemetryBackgroundTask";
 import { getLocationPermState } from "@/services/locationPermissions";
 
@@ -23,6 +24,7 @@ export async function startTelemetry(employeeId: string): Promise<boolean> {
   const perms = await getLocationPermState();
   if (!perms.trackingReady) return false;
 
+  setCachedTelemetryEmployee(employeeId);
   await SecureStore.setItemAsync(KEY_TELEMETRY_EMPLOYEE, employeeId);
 
   const already = await Location.hasStartedLocationUpdatesAsync(TELEMETRY_TASK_NAME).catch(
@@ -31,16 +33,15 @@ export async function startTelemetry(employeeId: string): Promise<boolean> {
   if (already) {
     try {
       const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.High,
       });
       await sendLocationPing(employeeId, loc, "mobile_gps");
     } catch {
       /* ok */
     }
-    return true;
   }
 
-  if (AppState.currentState !== "active") {
+  if (AppState.currentState !== "active" && !already) {
     // Android blocks starting FGS from background — retry when active
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
@@ -53,18 +54,19 @@ export async function startTelemetry(employeeId: string): Promise<boolean> {
 
   try {
     await Location.startLocationUpdatesAsync(TELEMETRY_TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
       timeInterval: TELEMETRY_MOVING_INTERVAL_MS,
       distanceInterval: TELEMETRY_DISTANCE_M,
       deferredUpdatesInterval: TELEMETRY_STATIONARY_INTERVAL_MS,
       showsBackgroundLocationIndicator: true,
       foregroundService: {
-        notificationTitle: "Workman Field Companion",
-        notificationBody: "Sharing location for job dispatch and field safety.",
+        notificationTitle: "Workman Services Active",
+        notificationBody: "Field operations sync active.",
         notificationColor: "#0D7A5F",
+        killServiceOnDestroy: false,
       },
-      pausesUpdatesAutomatically: true,
-      activityType: Location.ActivityType.AutomotiveNavigation,
+      pausesUpdatesAutomatically: false,
+      activityType: Location.ActivityType.Other,
     });
   } catch (e) {
     console.warn("[telemetry] startLocationUpdatesAsync deferred:", e);
@@ -73,7 +75,7 @@ export async function startTelemetry(employeeId: string): Promise<boolean> {
 
   try {
     const loc = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
     });
     await sendLocationPing(employeeId, loc, "mobile_gps");
   } catch {
@@ -84,6 +86,7 @@ export async function startTelemetry(employeeId: string): Promise<boolean> {
 }
 
 export async function stopTelemetry() {
+  setCachedTelemetryEmployee(null);
   await SecureStore.deleteItemAsync(KEY_TELEMETRY_EMPLOYEE).catch(() => {});
   const running = await Location.hasStartedLocationUpdatesAsync(TELEMETRY_TASK_NAME).catch(
     () => false

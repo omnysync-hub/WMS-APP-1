@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -10,14 +12,16 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check } from "lucide-react-native";
+import { Check, ChevronDown, Minus, Package, Plus, Search, Trash2, X } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
 import { fetchWarehouseProducts, requestJobInventory } from "@/services/jobsService";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
+import { formatMoney } from "@/lib/jobLineFormat";
 import { toast } from "@/store/toastStore";
 import { haptic } from "@/lib/haptics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Line = {
   key: string;
@@ -26,6 +30,7 @@ type Line = {
 };
 
 export default function InventoryRequestModal() {
+  const insets = useSafeAreaInsets();
   const { jobId, jobNumber } = useLocalSearchParams<{
     jobId: string;
     jobNumber?: string;
@@ -34,10 +39,8 @@ export default function InventoryRequestModal() {
   const qc = useQueryClient();
   const employee = useAuthStore((s) => s.employee);
   const [selected, setSelected] = useState<Record<string, string>>({});
-  const [customLines, setCustomLines] = useState<Line[]>([]);
-  const [customDraft, setCustomDraft] = useState("");
-  const [customQty, setCustomQty] = useState("1");
   const [search, setSearch] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const productsQuery = useQuery({
     queryKey: ["warehouse-products"],
@@ -56,16 +59,17 @@ export default function InventoryRequestModal() {
     });
   }, [products, search]);
 
+  const selectedProducts = useMemo(() => {
+    return products.filter((p) => selected[p.id] != null);
+  }, [products, selected]);
+
   const lines = useMemo(() => {
-    const fromCatalog: Line[] = products
-      .filter((p) => selected[p.id] != null)
-      .map((p) => ({
-        key: p.id,
-        label: `${p.name}${p.sku ? ` (${p.sku})` : ""}`,
-        qty: selected[p.id] || "1",
-      }));
-    return [...fromCatalog, ...customLines];
-  }, [products, selected, customLines]);
+    return selectedProducts.map((p) => ({
+      key: p.id,
+      label: `${p.name}${p.sku ? ` (${p.sku})` : ""}`,
+      qty: selected[p.id] || "1",
+    }));
+  }, [selectedProducts, selected]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -113,247 +117,455 @@ export default function InventoryRequestModal() {
     });
   }
 
-  function addCustom() {
-    const name = customDraft.trim();
-    if (!name) {
-      Alert.alert("Type a part name");
-      return;
-    }
-    void haptic.press();
-    setCustomLines((prev) => [
+  function updateQty(id: string, delta: number) {
+    void haptic.select();
+    setSelected((prev) => {
+      const cur = Math.max(1, Number(prev[id] || 1) + delta);
+      return { ...prev, [id]: String(cur) };
+    });
+  }
+
+  function setQtyDirect(id: string, text: string) {
+    const sanitized = text.replace(/[^\d]/g, "");
+    setSelected((prev) => ({
       ...prev,
-      {
-        key: `custom-${Date.now()}`,
-        label: name,
-        qty: String(Math.max(1, Number(customQty) || 1)),
-      },
-    ]);
-    setCustomDraft("");
-    setCustomQty("1");
+      [id]: sanitized || "1",
+    }));
+  }
+
+  function removeProduct(id: string) {
+    void haptic.warn();
+    setSelected((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ padding: space.lg, paddingBottom: 40 }}
-      keyboardShouldPersistTaps="handled"
-    >
-      <ScreenHeader
-        title="Need parts"
-        subtitle={`Job ${jobNumber || jobId} — select as many as you need`}
-      />
-
-      <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
-        Store list — search or tap to select
-      </Text>
-
-      {products.length > 0 ? (
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by part name or SKU…"
-          placeholderTextColor={colors.textDim}
-          autoCorrect={false}
-          autoCapitalize="none"
-          clearButtonMode="while-editing"
-          style={[field, { marginBottom: space.md }]}
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: space.lg, paddingBottom: 40 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <ScreenHeader
+          title="Request inventory"
+          subtitle={`Job ${jobNumber || jobId} — request stock from warehouse`}
         />
-      ) : null}
 
-      {productsQuery.isLoading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginVertical: space.lg }} />
-      ) : products.length === 0 ? (
-        <Text style={{ color: colors.textMuted, marginBottom: space.md, ...type.subtitle }}>
-          Store list unavailable — type parts below.
+        {/* Dropdown Selector trigger */}
+        <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
+          WAREHOUSE CATALOG
         </Text>
-      ) : filteredProducts.length === 0 ? (
-        <Text style={{ color: colors.textMuted, marginBottom: space.md, ...type.subtitle }}>
-          No parts match “{search.trim()}”. Try another name, or add a custom part below.
-        </Text>
-      ) : (
-        filteredProducts.map((p) => {
-          const on = selected[p.id] != null;
-          return (
-            <View
-              key={p.id}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open searchable inventory catalog dropdown"
+          onPress={() => {
+            void haptic.press();
+            setIsDropdownOpen(true);
+          }}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: colors.surface,
+            borderWidth: 1.5,
+            borderColor: selectedProducts.length > 0 ? colors.primary : colors.border,
+            borderRadius: radius.md,
+            paddingHorizontal: space.md,
+            paddingVertical: 14,
+            minHeight: tapMin,
+            marginBottom: space.lg,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}>
+            <Package size={20} color={colors.primary} />
+            <Text
               style={{
-                marginBottom: space.sm,
-                borderRadius: radius.md,
-                borderWidth: 1,
-                borderColor: on ? colors.primary : colors.border,
-                backgroundColor: on ? colors.primaryMuted : colors.surface,
-                overflow: "hidden",
+                color: selectedProducts.length > 0 ? colors.text : colors.textDim,
+                fontSize: 15,
+                fontWeight: selectedProducts.length > 0 ? "700" : "500",
+                flex: 1,
+              }}
+              numberOfLines={1}
+            >
+              {selectedProducts.length > 0
+                ? `${selectedProducts.length} part${selectedProducts.length === 1 ? "" : "s"} selected from store`
+                : products.length > 0
+                  ? `Choose parts from warehouse (${products.length} available)...`
+                  : "Loading warehouse parts..."}
+            </Text>
+          </View>
+          <ChevronDown size={20} color={colors.textDim} />
+        </Pressable>
+
+        {/* Selected Catalog Parts */}
+        {selectedProducts.length > 0 && (
+          <View style={{ marginBottom: space.lg, gap: space.sm }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: colors.textDim, ...type.label }}>
+                PARTS TO REQUEST ({selectedProducts.length})
+              </Text>
+              <Pressable
+                onPress={() => setIsDropdownOpen(true)}
+                style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: "700", fontSize: 13 }}>
+                  + Add more parts
+                </Text>
+              </Pressable>
+            </View>
+
+            {selectedProducts.map((p) => {
+              const qtyVal = selected[p.id] || "1";
+              return (
+                <View
+                  key={p.id}
+                  style={{
+                    backgroundColor: colors.surface,
+                    borderRadius: radius.md,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    padding: space.md,
+                    gap: 10,
+                  }}
+                >
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ color: colors.text, fontWeight: "700", fontSize: 15 }}>
+                        {p.name}
+                      </Text>
+                      {p.sku ? (
+                        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 2 }}>
+                          SKU: {p.sku}
+                        </Text>
+                      ) : null}
+                      {p.unitPrice != null ? (
+                        <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700", marginTop: 2 }}>
+                          {formatMoney(p.unitPrice)}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${p.name}`}
+                      onPress={() => removeProduct(p.id)}
+                      style={{ padding: 6 }}
+                    >
+                      <Trash2 size={18} color={colors.danger} />
+                    </Pressable>
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      backgroundColor: colors.surfaceElevated,
+                      borderRadius: radius.sm,
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.textDim, fontSize: 12, fontWeight: "600" }}>
+                      Requested Quantity
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Decrease quantity"
+                        onPress={() => updateQty(p.id, -1)}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: radius.sm,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Minus size={14} color={colors.text} />
+                      </Pressable>
+
+                      <TextInput
+                        value={qtyVal}
+                        onChangeText={(t) => setQtyDirect(p.id, t)}
+                        keyboardType="number-pad"
+                        style={{
+                          width: 50,
+                          height: 32,
+                          backgroundColor: colors.surface,
+                          color: colors.text,
+                          borderRadius: radius.sm,
+                          textAlign: "center",
+                          fontWeight: "800",
+                          fontSize: 14,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          paddingVertical: 0,
+                        }}
+                      />
+
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Increase quantity"
+                        onPress={() => updateQty(p.id, 1)}
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: radius.sm,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <Plus size={14} color={colors.text} />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+
+        <View style={{ marginTop: space.xl, gap: space.sm }}>
+          <Text
+            style={{
+              color: colors.textMuted,
+              textAlign: "center",
+              ...type.subtitle,
+            }}
+          >
+            {lines.length === 0
+              ? "Select parts using the dropdown above"
+              : `${lines.length} part request${lines.length === 1 ? "" : "s"} ready to send`}
+          </Text>
+
+          <Button
+            title={
+              lines.length <= 1
+                ? "Send to storekeeper"
+                : `Send ${lines.length} parts to storekeeper`
+            }
+            loading={mutation.isPending}
+            disabled={lines.length === 0}
+            onPress={() => mutation.mutate()}
+          />
+        </View>
+      </ScrollView>
+
+      {/* Accessible Searchable Dropdown Modal */}
+      <Modal
+        visible={isDropdownOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setIsDropdownOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          {/* Modal Header */}
+          <View
+            style={{
+              paddingHorizontal: space.lg,
+              paddingTop: Math.max(insets.top, space.lg),
+              paddingBottom: space.md,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <View>
+              <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>
+                Select warehouse parts
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 2 }}>
+                Search and tap parts to include in your request
+              </Text>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close parts selector"
+              onPress={() => setIsDropdownOpen(false)}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                backgroundColor: colors.surfaceElevated,
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Pressable
-                onPress={() => toggleProduct(p.id)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: space.md,
-                  padding: space.md,
-                  minHeight: tapMin,
-                }}
-              >
-                <View
-                  style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 6,
-                    borderWidth: 2,
-                    borderColor: on ? colors.text : colors.border,
-                    backgroundColor: on ? colors.primary : "transparent",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {on ? <Check size={14} color={colors.text} strokeWidth={3} /> : null}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontWeight: "700" }}>{p.name}</Text>
-                  {p.sku ? (
-                    <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 2 }}>
-                      {p.sku}
-                    </Text>
-                  ) : null}
-                </View>
-              </Pressable>
-              {on ? (
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: space.sm,
-                    paddingHorizontal: space.md,
-                    paddingBottom: space.md,
-                  }}
-                >
-                  <Text style={{ color: colors.textMuted, ...type.label }}>Qty</Text>
-                  <TextInput
-                    value={selected[p.id]}
-                    onChangeText={(t) =>
-                      setSelected((prev) => ({
-                        ...prev,
-                        [p.id]: t.replace(/[^\d]/g, ""),
-                      }))
-                    }
-                    keyboardType="number-pad"
-                    style={[field, { width: 72, minHeight: 44, paddingVertical: 10 }]}
-                  />
-                </View>
-              ) : null}
-            </View>
-          );
-        })
-      )}
+              <X size={20} color={colors.text} />
+            </Pressable>
+          </View>
 
-      <Text
-        style={{
-          color: colors.textDim,
-          marginTop: space.lg,
-          marginBottom: space.sm,
-          ...type.label,
-        }}
-      >
-        Or add a custom part
-      </Text>
-      <TextInput
-        value={customDraft}
-        onChangeText={setCustomDraft}
-        placeholder="e.g. 1/2″ brass ball valve"
-        placeholderTextColor={colors.textDim}
-        style={field}
-      />
-      <View
-        style={{
-          flexDirection: "row",
-          gap: space.sm,
-          marginTop: space.sm,
-          alignItems: "center",
-        }}
-      >
-        <TextInput
-          value={customQty}
-          onChangeText={setCustomQty}
-          keyboardType="number-pad"
-          placeholder="Qty"
-          placeholderTextColor={colors.textDim}
-          style={[field, { width: 72 }]}
-        />
-        <Button
-          title="Add to list"
-          variant="secondary"
-          size="md"
-          onPress={addCustom}
-          style={{ flex: 1 }}
-        />
-      </View>
-
-      {customLines.length > 0 ? (
-        <View style={{ marginTop: space.md, gap: space.sm }}>
-          <Text style={{ color: colors.textDim, ...type.label }}>Custom parts</Text>
-          {customLines.map((line) => (
+          {/* Search Box */}
+          <View style={{ paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm }}>
             <View
-              key={line.key}
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                gap: space.sm,
                 backgroundColor: colors.surface,
                 borderRadius: radius.md,
                 borderWidth: 1,
                 borderColor: colors.border,
-                padding: space.md,
+                paddingHorizontal: 12,
               }}
             >
-              <Text style={{ color: colors.text, flex: 1, fontWeight: "600" }}>{line.label}</Text>
+              <Search size={18} color={colors.textDim} />
               <TextInput
-                value={line.qty}
-                onChangeText={(t) =>
-                  setCustomLines((prev) =>
-                    prev.map((l) =>
-                      l.key === line.key ? { ...l, qty: t.replace(/[^\d]/g, "") } : l
-                    )
-                  )
-                }
-                keyboardType="number-pad"
-                style={[field, { width: 64, minHeight: 40, paddingVertical: 8 }]}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search by part name or SKU…"
+                placeholderTextColor={colors.textDim}
+                autoCorrect={false}
+                autoCapitalize="none"
+                style={{
+                  flex: 1,
+                  color: colors.text,
+                  paddingHorizontal: 10,
+                  paddingVertical: 12,
+                  fontSize: 15,
+                  minHeight: 46,
+                }}
               />
-              <Pressable
-                onPress={() => setCustomLines((prev) => prev.filter((l) => l.key !== line.key))}
-                style={{ minHeight: tapMin, justifyContent: "center", paddingHorizontal: 8 }}
-              >
-                <Text style={{ color: colors.danger, fontWeight: "700" }}>Remove</Text>
-              </Pressable>
+              {search ? (
+                <Pressable onPress={() => setSearch("")} style={{ padding: 4 }}>
+                  <X size={16} color={colors.textDim} />
+                </Pressable>
+              ) : null}
             </View>
-          ))}
+          </View>
+
+          {/* Catalog List */}
+          {productsQuery.isLoading ? (
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+              <ActivityIndicator color={colors.primary} size="large" />
+              <Text style={{ color: colors.textDim, marginTop: 10 }}>Loading warehouse catalog…</Text>
+            </View>
+          ) : filteredProducts.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: "center", alignItems: "center", padding: space.xl }}>
+              <Text style={{ color: colors.textMuted, fontSize: 15, textAlign: "center" }}>
+                No parts match “{search.trim()}”.
+              </Text>
+              <Text style={{ color: colors.textDim, fontSize: 13, marginTop: 6, textAlign: "center" }}>
+                Try searching with a different keyword or SKU.
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredProducts}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: 110 + insets.bottom }}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item: p }) => {
+                const on = selected[p.id] != null;
+                return (
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: on }}
+                    accessibilityLabel={`${p.name}${p.sku ? `, SKU ${p.sku}` : ""}`}
+                    onPress={() => toggleProduct(p.id)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                      paddingVertical: 14,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.md,
+                      backgroundColor: on ? colors.primaryMuted : colors.surface,
+                      borderWidth: 1,
+                      borderColor: on ? colors.primary : colors.border,
+                      marginBottom: 8,
+                      minHeight: 56,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        borderWidth: 2,
+                        borderColor: on ? colors.text : colors.border,
+                        backgroundColor: on ? colors.primary : "transparent",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      {on ? <Check size={14} color="#fff" strokeWidth={3} /> : null}
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.text, fontWeight: "700", fontSize: 15 }}>
+                        {p.name}
+                      </Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
+                        {p.sku ? (
+                          <Text style={{ color: colors.textDim, fontSize: 12 }}>
+                            SKU: {p.sku}
+                          </Text>
+                        ) : null}
+                        {p.unitPrice != null ? (
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: "700" }}>
+                            {formatMoney(p.unitPrice)}
+                          </Text>
+                        ) : null}
+                        {p.stockQuantity != null ? (
+                          <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                            · Stock: {p.stockQuantity}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+
+          {/* Modal Bottom Bar */}
+          <View
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: colors.surfaceElevated,
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
+              paddingHorizontal: space.md,
+              paddingTop: space.md,
+              paddingBottom: Math.max(insets.bottom, space.md),
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: "700", fontSize: 14 }}>
+              {selectedProducts.length} selected
+            </Text>
+            <Button
+              title="Done selecting"
+              size="md"
+              onPress={() => setIsDropdownOpen(false)}
+              style={{ minWidth: 140 }}
+            />
+          </View>
         </View>
-      ) : null}
-
-      <Text
-        style={{
-          color: colors.textMuted,
-          marginTop: space.xl,
-          marginBottom: space.sm,
-          ...type.subtitle,
-        }}
-      >
-        {lines.length === 0
-          ? "Nothing selected yet"
-          : `${lines.length} part${lines.length === 1 ? "" : "s"} ready to send`}
-      </Text>
-
-      <Button
-        title={
-          lines.length <= 1
-            ? "Send to storekeeper"
-            : `Send ${lines.length} parts to storekeeper`
-        }
-        loading={mutation.isPending}
-        disabled={lines.length === 0}
-        onPress={() => mutation.mutate()}
-      />
-    </ScrollView>
+      </Modal>
+    </View>
   );
 }
 

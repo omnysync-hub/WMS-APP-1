@@ -13,6 +13,7 @@ import { RequestCard } from "@/components/requests/RequestCard";
 import { fetchRequests, respondToRequest } from "@/services/requestsService";
 import { useLiveRequestsStream } from "@/hooks/useLiveRequestsStream";
 import { useAuthStore } from "@/store/authStore";
+import { stopContinuousJobRing, markJobAsAccepted } from "@/services/jobAssignmentAlert";
 import { colors } from "@/constants/theme";
 
 export default function RequestsScreen() {
@@ -31,17 +32,25 @@ export default function RequestsScreen() {
   });
 
   const mutation = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       id: string;
       actionStatus: "accepted" | "rejected" | "acknowledged";
       notes?: string;
-    }) =>
-      respondToRequest(args.id, {
+    }) => {
+      if (args.actionStatus === "accepted") {
+        await markJobAsAccepted(undefined, args.id, employee?.id);
+      }
+      const res = await respondToRequest(args.id, {
         employeeId: employee!.id,
         actionStatus: args.actionStatus,
         notes: args.notes,
         etaMinutes: args.actionStatus === "accepted" ? 15 : undefined,
-      }),
+      });
+      if (args.actionStatus === "accepted") {
+        await markJobAsAccepted(undefined, args.id, employee?.id);
+      }
+      return res;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["requests"] });
       qc.invalidateQueries({ queryKey: ["jobs"] });

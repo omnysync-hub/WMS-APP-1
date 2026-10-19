@@ -163,10 +163,10 @@ export function JobInventorySections({
         </View>
       ) : null}
 
-      {discountPending.length > 0 || discountApproved.length > 0 ? (
+      {discountPending.length > 0 ? (
         <View>
-          <SectionTitle count={discountPending.length + discountApproved.length}>
-            DISCOUNT REQUESTS
+          <SectionTitle count={discountPending.length}>
+            PENDING DISCOUNT REQUESTS
           </SectionTitle>
           {discountPending.map((l) => (
             <View key={`dp-${l.id}`} style={row}>
@@ -177,20 +177,6 @@ export function JobInventorySections({
                 </Text>
               </View>
               <StatusBadge label="Pending" tone="Pending" />
-            </View>
-          ))}
-          {discountApproved.map((l) => (
-            <View key={`da-${l.id}`} style={row}>
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ color: colors.text, fontWeight: "700" }}>{l.title}</Text>
-                <Text style={{ color: colors.success, fontSize: 12, fontWeight: "600" }}>
-                  Approved · {l.discountApproved}
-                </Text>
-                <Text style={{ color: colors.textDim, fontSize: 12 }}>
-                  Now {formatMoney(l.unitRate)} · line {formatMoney(l.lineTotal)}
-                </Text>
-              </View>
-              <StatusBadge label="Approved" tone="Approved" />
             </View>
           ))}
         </View>

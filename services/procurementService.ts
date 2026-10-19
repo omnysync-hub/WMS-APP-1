@@ -1,15 +1,9 @@
 import { apiClient } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
 
+/** Identity comes from the signed Bearer token (added by apiClient); no actor headers are sent. */
 function actorHeaders() {
-  const employee = useAuthStore.getState().employee;
-  const role = (employee?.role || "technician").toLowerCase();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "x-actor-role": role,
-  };
-  if (employee?.name) headers["x-actor-name"] = employee.name;
-  if (employee?.id) headers["x-user-id"] = employee.id;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
   return headers;
 }
 

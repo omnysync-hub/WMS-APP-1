@@ -1,4 +1,5 @@
 import "@/services/telemetryBackgroundTask";
+import "@/services/backgroundNotificationTask";
 import "../global.css";
 import { useEffect, type ReactNode } from "react";
 import { Stack, useRouter } from "expo-router";
@@ -12,14 +13,18 @@ import { ToastHost } from "@/components/ui/ToastHost";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import {
   attachPushListeners,
+  ensureAndroidChannels,
   registerForPushNotifications,
 } from "@/services/pushNotificationService";
 import { startJobDispatchWatcher } from "@/services/jobDispatchWatcher";
+import { configureAudioForCriticalAlerts } from "@/services/jobAssignmentAlert";
 import { bootstrapFaceModels } from "@/services/face/modelBootstrap";
 import { ensureDevSession } from "@/services/authService";
 import { resumeTechnicianLocationOnLaunch } from "@/services/technicianLocationGate";
 import { SKIP_LOGIN } from "@/constants/dev";
 import { colors } from "@/constants/theme";
+import { LocationEnforcementGate } from "@/components/location/LocationEnforcementGate";
+import { IncomingJobRingBanner } from "@/components/job/IncomingJobRingBanner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +41,8 @@ function Bootstrap({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void initDatabase();
+    void configureAudioForCriticalAlerts();
+    void ensureAndroidChannels();
     void (async () => {
       await hydrate();
       if (SKIP_LOGIN) await ensureDevSession();
@@ -99,6 +106,8 @@ export default function RootLayout() {
           </Stack>
           <OfflineNotice />
           <ToastHost />
+          <LocationEnforcementGate />
+          <IncomingJobRingBanner />
         </Bootstrap>
       </QueryClientProvider>
     </GestureHandlerRootView>

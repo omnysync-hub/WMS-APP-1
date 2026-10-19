@@ -13,7 +13,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { addJobServices, fetchCatalogServices } from "@/services/jobsService";
+import { addJobServices, fetchCatalogServices, fetchJob } from "@/services/jobsService";
+import { InlineBanner } from "@/components/ui/InlineBanner";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
 import { formatMoney } from "@/lib/jobLineFormat";
@@ -24,6 +25,7 @@ type Row = {
   key: string;
   description: string;
   unitRate: string;
+  quantity: string;
   catalogId?: string;
 };
 
@@ -32,6 +34,7 @@ function emptyRow(): Row {
     key: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     description: "",
     unitRate: "",
+    quantity: "1",
   };
 }
 
@@ -45,6 +48,12 @@ export default function AddServicesModal() {
   const employee = useAuthStore((s) => s.employee);
   const [rows, setRows] = useState<Row[]>([emptyRow()]);
   const [search, setSearch] = useState("");
+
+  const jobQuery = useQuery({
+    queryKey: ["job", jobId],
+    enabled: Boolean(jobId),
+    queryFn: () => fetchJob(jobId!),
+  });
 
   const catalogQuery = useQuery({
     queryKey: ["catalog-services"],
@@ -66,7 +75,11 @@ export default function AddServicesModal() {
 
   const total = useMemo(
     () =>
-      rows.reduce((sum, r) => sum + Math.max(0, Number(r.unitRate) || 0), 0),
+      rows.reduce((sum, r) => {
+        const rate = Math.max(0, Number(r.unitRate) || 0);
+        const qty = Math.max(1, Number(r.quantity) || 1);
+        return sum + rate * qty;
+      }, 0),
     [rows]
   );
 
@@ -76,7 +89,7 @@ export default function AddServicesModal() {
       const services = rows
         .map((r) => ({
           description: r.description.trim(),
-          quantity: 1,
+          quantity: Math.max(1, Number(r.quantity) || 1),
           unitRate: Math.max(0, Number(r.unitRate) || 0),
         }))
         .filter((s) => s.description.length > 0);
@@ -114,6 +127,7 @@ export default function AddServicesModal() {
                 ...r,
                 description: p.name,
                 unitRate: String(p.unitPrice ?? 0),
+                quantity: r.quantity || "1",
                 catalogId: p.id,
               }
             : r
@@ -125,6 +139,7 @@ export default function AddServicesModal() {
           ...emptyRow(),
           description: p.name,
           unitRate: String(p.unitPrice ?? 0),
+          quantity: "1",
           catalogId: p.id,
         },
       ];
@@ -143,17 +158,30 @@ export default function AddServicesModal() {
         subtitle={`Job ${jobNumber || jobId} — each service is qty 1`}
       />
 
-      <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
-        Pick from catalog (optional)
-      </Text>
-      <TextInput
-        value={search}
-        onChangeText={setSearch}
-        placeholder="Search service name…"
-        placeholderTextColor={colors.textDim}
-        autoCorrect={false}
-        style={[field, { marginBottom: space.sm }]}
-      />
+      {jobQuery.isLoading ? (
+        <ActivityIndicator color={colors.primary} style={{ marginTop: space.lg }} />
+      ) : jobQuery.data?.status !== "InProgress" ? (
+        <View style={{ gap: 12, marginTop: space.md }}>
+          <InlineBanner
+            title="Job not started"
+            detail="Services and labor can only be added after starting the job on site (In Progress)."
+            tone="warn"
+          />
+          <Button title="Go back" variant="secondary" onPress={() => router.back()} />
+        </View>
+      ) : (
+        <>
+          <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
+            Pick from catalog (optional)
+          </Text>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search service name…"
+            placeholderTextColor={colors.textDim}
+            autoCorrect={false}
+            style={[field, { marginBottom: space.sm }]}
+          />
 
       {catalogQuery.isLoading ? (
         <ActivityIndicator color={colors.primary} style={{ marginBottom: space.md }} />
@@ -224,17 +252,34 @@ export default function AddServicesModal() {
             placeholderTextColor={colors.textDim}
             style={field}
           />
-          <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700" }}>Price (PKR)</Text>
-          <TextInput
-            value={row.unitRate}
-            onChangeText={(t) => updateRow(row.key, { unitRate: t.replace(/[^\d.]/g, "") })}
-            keyboardType="decimal-pad"
-            placeholder="0"
-            placeholderTextColor={colors.textDim}
-            style={field}
-          />
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>Price (PKR)</Text>
+              <TextInput
+                value={row.unitRate}
+                onChangeText={(t) => updateRow(row.key, { unitRate: t.replace(/[^\d.]/g, "") })}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={colors.textDim}
+                style={field}
+              />
+            </View>
+
+            <View style={{ width: 80 }}>
+              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>Qty</Text>
+              <TextInput
+                value={row.quantity}
+                onChangeText={(t) => updateRow(row.key, { quantity: t.replace(/[^\d]/g, "") })}
+                keyboardType="number-pad"
+                placeholder="1"
+                placeholderTextColor={colors.textDim}
+                style={[field, { textAlign: "center" }]}
+              />
+            </View>
+          </View>
+
           <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-            One service · {formatMoney(Number(row.unitRate) || 0)}
+            {Math.max(1, Number(row.quantity) || 1)} unit(s) · {formatMoney((Math.max(0, Number(row.unitRate) || 0)) * (Math.max(1, Number(row.quantity) || 1)))}
           </Text>
         </View>
       ))}
@@ -261,6 +306,8 @@ export default function AddServicesModal() {
         disabled={!rows.some((r) => r.description.trim())}
         onPress={() => mutation.mutate()}
       />
+        </>
+      )}
     </ScrollView>
   );
 }

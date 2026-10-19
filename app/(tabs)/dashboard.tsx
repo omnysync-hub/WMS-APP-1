@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bell, Briefcase, ChevronRight, Package, Receipt } from "lucide-react-native";
@@ -10,7 +10,7 @@ import { fetchJobs } from "@/services/jobsService";
 import { fetchRequests } from "@/services/requestsService";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
-import { isTechnicianDoneStatus, parseJobLine } from "@/lib/jobLineFormat";
+import { calculateJobBilling, isTechnicianDoneStatus } from "@/lib/jobLineFormat";
 import type { Job } from "@/types";
 
 function sameDay(value: string | null | undefined, date: Date) {
@@ -21,24 +21,6 @@ function sameDay(value: string | null | undefined, date: Date) {
 
 function money(value: number) {
   return `PKR ${Math.round(value).toLocaleString()}`;
-}
-
-function jobValue(job: Job) {
-  return (job.items ?? []).reduce((sum, item) => {
-    const qty = Number(item.quantityActual ?? item.quantityPlanned ?? 0);
-    const rate = Number(item.unitRate ?? item.unitPrice ?? 0);
-    return sum + (Number.isFinite(qty * rate) ? qty * rate : 0);
-  }, 0);
-}
-
-function issuedInventoryValue(job: Job) {
-  return (job.items ?? []).reduce((sum, item) => {
-    const line = parseJobLine(item);
-    if (line.isService) return sum;
-    const qty = Number(item.quantityActual ?? item.quantityPlanned ?? 0);
-    const rate = Number(item.unitRate ?? item.unitPrice ?? 0);
-    return sum + (Number.isFinite(qty * rate) ? qty * rate : 0);
-  }, 0);
 }
 
 export default function DashboardScreen() {
@@ -77,8 +59,8 @@ export default function DashboardScreen() {
         const date = new Date(value);
         return !Number.isNaN(date.getTime()) && date >= weekStart && date < weekEnd;
       }).length,
-      inventoryValue: active.reduce((sum, j) => sum + issuedInventoryValue(j), 0),
-      paymentTarget: active.reduce((sum, j) => sum + Math.max(0, jobValue(j) - Number(j.discountAmount ?? 0)), 0),
+      inventoryValue: active.reduce((sum, j) => sum + calculateJobBilling(j).issuedMaterialsValue, 0),
+      paymentTarget: active.reduce((sum, j) => sum + calculateJobBilling(j).netTotal, 0),
     };
   }, [jobsQuery.data]);
 
@@ -92,18 +74,78 @@ export default function DashboardScreen() {
       contentContainerStyle={{ padding: space.lg, paddingBottom: 40 }}
       refreshControl={<RefreshControl refreshing={jobsQuery.isRefetching} onRefresh={() => jobsQuery.refetch()} tintColor={colors.primary} />}
     >
+      {/* Brand Bar */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: space.lg,
+          paddingBottom: space.sm,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              backgroundColor: "#FFFFFF",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 4,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.15,
+              shadowRadius: 4,
+              elevation: 3,
+            }}
+          >
+            <Image
+              source={require("@/assets/workman-logo.png")}
+              style={{ width: "100%", height: "100%", resizeMode: "contain" }}
+            />
+          </View>
+          <View>
+            <Text style={{ color: colors.text, fontWeight: "900", fontSize: 15, letterSpacing: 0.5 }}>
+              WORKMAN SERVICES
+            </Text>
+            <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "600" }}>
+              Field Operations
+            </Text>
+          </View>
+        </View>
+
+        <Pressable
+          onPress={() => router.push("/(tabs)/requests")}
+          style={alertButton}
+          accessibilityLabel={`${unread} unread requests`}
+        >
+          <Bell size={18} color="#fff" />
+          {unread > 0 ? (
+            <Text style={{ color: "#fff", fontWeight: "900", fontSize: 13 }}>{unread}</Text>
+          ) : null}
+        </Pressable>
+      </View>
+
       <ScreenHeader
         title={`Good day, ${firstName}`}
         subtitle="Here is your field work at a glance."
-        right={
-          <Pressable onPress={() => router.push("/(tabs)/requests")} style={alertButton} accessibilityLabel={`${unread} unread requests`}>
-            <Bell size={20} color="#fff" />
-            {unread > 0 ? <Text style={{ color: "#fff", fontWeight: "900" }}>{unread}</Text> : null}
-          </Pressable>
-        }
       />
 
-      {jobsQuery.isError ? <InlineBanner title="Dashboard unavailable" detail="Pull down to try again." tone="error" /> : null}
+      {jobsQuery.isError ? (
+        <InlineBanner
+          title="Dashboard unavailable"
+          detail={
+            jobsQuery.error instanceof Error
+              ? jobsQuery.error.message
+              : "Pull down to try again."
+          }
+          tone="error"
+        />
+      ) : null}
       {jobsQuery.isLoading ? <ActivityIndicator color={colors.primary} size="large" style={{ marginTop: 48 }} /> : (
         <>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.md }}>

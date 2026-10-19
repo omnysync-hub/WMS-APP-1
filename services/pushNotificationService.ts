@@ -12,6 +12,11 @@ import {
   ensureJobAssignmentChannel,
   ensureUrgentChannel,
   looksLikeJobAssignment,
+  startContinuousJobRing,
+  stopContinuousJobRing,
+  isJobAccepted,
+  isRequestAccepted,
+  RING_NOTIFICATION_ID,
   JOB_RING_CHANNEL,
   JOB_RING_SOUND,
 } from "@/services/jobAssignmentAlert";
@@ -27,7 +32,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-async function ensureAndroidChannels() {
+export async function ensureAndroidChannels() {
   if (Platform.OS !== "android") return;
   await ensureJobAssignmentChannel();
   await ensureUrgentChannel();
@@ -148,37 +153,57 @@ function routeFromNotificationData(data: Record<string, unknown> | undefined) {
   router.push("/(tabs)/requests");
 }
 
-/** Foreground toasts + tap-to-open. Call once from root layout. */
+/** Foreground toasts + tap-to-open + cold launch handler. Call once from root layout. */
 export function attachPushListeners() {
+  // Check cold launch from notification tap when app was closed/killed
+  void Notifications.getLastNotificationResponseAsync().then((response) => {
+    if (response) {
+      const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+      routeFromNotificationData(data);
+    }
+  });
+
   const received = Notifications.addNotificationReceivedListener((n) => {
+    const data = n.request.content.data as Record<string, unknown> | undefined;
+
+    // Ignore internal ring ticks!
+    if (
+      n.request.identifier === RING_NOTIFICATION_ID ||
+      data?.isLocalRingTick === true
+    ) {
+      return;
+    }
+
+    const jobId = data?.jobId ? String(data.jobId) : undefined;
+    const requestId = data?.requestId ? String(data.requestId) : undefined;
+
+    // If job or request is ALREADY accepted, dismiss and do not ring!
+    if (isJobAccepted(jobId) || isRequestAccepted(requestId)) {
+      void stopContinuousJobRing();
+      void Notifications.dismissNotificationAsync(n.request.identifier).catch(() => {});
+      return;
+    }
+
     const rawTitle = n.request.content.title ?? "Workman";
     const rawBody = n.request.content.body ?? "";
     const { title } = friendlyDispatchCopy(rawTitle, rawBody);
     void haptic.warn();
     toast(title, "info");
 
-    // If OS delivered a job push without our ring channel (rare), re-fire local ring
-    const data = n.request.content.data as Record<string, unknown> | undefined;
+    // If a job assignment notification is received, start continuous looping ringtone until accepted
     if (
       looksLikeJobAssignment({
         type: data?.type ? String(data.type) : undefined,
         title: rawTitle,
         body: rawBody,
-      }) &&
-      Platform.OS === "android" &&
-      receivedChannelId(n) !== JOB_RING_CHANNEL
+      })
     ) {
-      void Notifications.scheduleNotificationAsync({
-        content: {
-          title: friendlyDispatchCopy(rawTitle, rawBody).title,
-          body: friendlyDispatchCopy(rawTitle, rawBody).body,
-          sound: JOB_RING_SOUND,
-          priority: Notifications.AndroidNotificationPriority.MAX,
-          data: data ?? { type: "JOB_DISPATCH" },
-        },
-        // expo-notifications 57: Android channel goes on the (immediate) channel-aware trigger
-        trigger: { channelId: JOB_RING_CHANNEL },
-      }).catch(() => undefined);
+      void startContinuousJobRing({
+        jobId,
+        requestId,
+        title: friendlyDispatchCopy(rawTitle, rawBody).title,
+        body: friendlyDispatchCopy(rawTitle, rawBody).body,
+      });
     }
   });
 

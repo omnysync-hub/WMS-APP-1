@@ -1,14 +1,20 @@
 import * as SecureStore from "expo-secure-store";
 import { AppState, Platform } from "react-native";
 import { fetchRequests } from "@/services/requestsService";
+import { fetchJobs, isJobVisibleToTechnician } from "@/services/jobsService";
 import { friendlyDispatchCopy } from "@/lib/friendlyDispatch";
 import {
-  alertJobAssignment,
   alertUrgent,
   ensureJobAssignmentChannel,
   looksLikeJobAssignment,
+  startContinuousJobRing,
+  stopContinuousJobRing,
+  isJobRinging,
+  markJobAsAccepted,
+  isJobAccepted,
+  isRequestAccepted,
 } from "@/services/jobAssignmentAlert";
-import type { DispatchRequest } from "@/types";
+import type { DispatchRequest, Job } from "@/types";
 
 const KEY_SEEDED = "wms_dispatch_watcher_seeded_v1";
 const KEY_ALERTED = "wms_dispatch_alerted_ids_v1";
@@ -64,10 +70,12 @@ function payloadJobId(r: DispatchRequest): string | undefined {
   }
 }
 
+/** Stop repeating ringtone and alarm vibration immediately */
+export { stopContinuousJobRing, stopContinuousJobRing as stopJobAssignmentRinging };
+
 /**
- * Poll ERP for new dispatch rows and fire local long ring.
+ * Poll ERP for new dispatch rows and keep looping ringtone until all assigned jobs are accepted.
  * Works without FCM while the app (or background location) is alive.
- * First run seeds existing rows so we don't re-ring old jobs.
  */
 export async function checkAndAlertNewDispatches(employeeId: string): Promise<number> {
   if (!employeeId) return 0;
@@ -75,7 +83,97 @@ export async function checkAndAlertNewDispatches(employeeId: string): Promise<nu
     await ensureJobAssignmentChannel();
   }
 
-  const { requests } = await fetchRequests(employeeId);
+  // 1. Fetch both requests and assigned jobs
+  let requests: DispatchRequest[] = [];
+  try {
+    const res = await fetchRequests(employeeId);
+    requests = res.requests;
+  } catch {
+    /* offline fallback */
+  }
+
+  let jobs: Job[] = [];
+  try {
+    jobs = await fetchJobs(employeeId);
+  } catch {
+    /* offline fallback */
+  }
+
+  // Auto-record all non-assigned jobs as accepted
+  for (const j of jobs) {
+    if (j.status !== "Assigned") {
+      void markJobAsAccepted(j.id);
+    }
+  }
+
+  // Find unaccepted jobs assigned to this technician
+  const unacceptedJobs = jobs.filter(
+    (j) =>
+      j.status === "Assigned" &&
+      !isJobAccepted(j.id) &&
+      isJobVisibleToTechnician(j, employeeId)
+  );
+
+  // Find unaccepted job dispatch requests
+  const unacceptedRequests = requests.filter((r) => {
+    if (r.actionStatus !== "pending") return false;
+    if (isRequestAccepted(r.id)) return false;
+
+    const linkedJobId = payloadJobId(r);
+    if (linkedJobId) {
+      if (isJobAccepted(linkedJobId)) return false;
+      if (jobs.some((j) => j.id === linkedJobId && j.status !== "Assigned")) {
+        void markJobAsAccepted(linkedJobId, r.id, employeeId);
+        return false;
+      }
+    }
+
+    return (
+      looksLikeJobAssignment({
+        type: r.type,
+        title: r.title,
+        body: r.body,
+      }) ||
+      r.type === "JOB_DISPATCH" ||
+      r.type === "EMERGENCY_ALERT"
+    );
+  });
+
+  const hasUnaccepted = unacceptedJobs.length > 0 || unacceptedRequests.length > 0;
+
+  if (hasUnaccepted) {
+    if (unacceptedJobs.length > 0) {
+      const topJob = unacceptedJobs[0];
+      const jobAddress = topJob.address ?? "";
+      const jobLabel = topJob.jobType ?? "Service Call";
+      const copy = friendlyDispatchCopy(
+        `New Job Assigned: #${topJob.jobNumber ?? topJob.id.slice(0, 8)}`,
+        `${jobLabel}${jobAddress ? ` • ${jobAddress}` : ""}`
+      );
+      await startContinuousJobRing({
+        jobId: topJob.id,
+        jobNumber: topJob.jobNumber,
+        title: copy.title,
+        body: copy.body,
+        address: jobAddress,
+        customerName: topJob.customerName ?? undefined,
+      });
+    } else {
+      const topReq = unacceptedRequests[0];
+      const copy = friendlyDispatchCopy(topReq.title, topReq.body);
+      await startContinuousJobRing({
+        requestId: topReq.id,
+        jobId: payloadJobId(topReq),
+        title: copy.title,
+        body: copy.body,
+      });
+    }
+  } else {
+    // If everything is accepted, silence the continuous ringtone and dismiss all notifications!
+    await stopContinuousJobRing();
+  }
+
+  // 2. Handle one-time alerts (parts issued, discounts approved/rejected)
   const alerted = await loadIds();
   const seeded = (await SecureStore.getItemAsync(KEY_SEEDED)) === "1";
 
@@ -83,14 +181,11 @@ export async function checkAndAlertNewDispatches(employeeId: string): Promise<nu
     for (const r of requests) alerted.add(r.id);
     await saveIds(alerted);
     await SecureStore.setItemAsync(KEY_SEEDED, "1");
-    return 0;
+    return hasUnaccepted ? 1 : 0;
   }
 
-  let rung = 0;
-  // Newest first from API — alert oldest-unseen first so order feels natural
-  const fresh = [...requests]
-    .filter((r) => !alerted.has(r.id))
-    .reverse();
+  let rung = hasUnaccepted ? 1 : 0;
+  const fresh = [...requests].filter((r) => !alerted.has(r.id)).reverse();
 
   for (const r of fresh) {
     const done =
@@ -103,17 +198,9 @@ export async function checkAndAlertNewDispatches(employeeId: string): Promise<nu
       continue;
     }
 
-    const jobLike = looksLikeJobAssignment({
-      type: r.type,
-      title: r.title,
-      body: r.body,
-    });
     const copy = friendlyDispatchCopy(r.title, r.body);
 
-    if (jobLike || r.type === "JOB_DISPATCH" || r.type === "EMERGENCY_ALERT") {
-      await alertJobAssignment(copy.title, copy.body, payloadJobId(r));
-      rung += 1;
-    } else if (
+    if (
       r.type === "INVENTORY_ISSUED" ||
       r.type === "DISCOUNT_DECISION" ||
       r.priority === "high" ||
@@ -217,6 +304,7 @@ export function startJobDispatchWatcher(
     abort?.abort();
     clearInterval(poll);
     appSub.remove();
+    void stopContinuousJobRing();
   };
 }
 

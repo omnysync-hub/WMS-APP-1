@@ -350,7 +350,7 @@ export function JobSectionPanel({
             <StockLineCard
               key={l.id}
               title={l.title}
-              detail={`Approved · ${toPkrLabel(l.discountApproved)}\nNow ${formatMoney(l.unitRate)} · line ${formatMoney(l.lineTotal)}`}
+              detail={`Approved · ${toPkrLabel(l.discountApproved)}\nRate: ${formatMoney(l.unitRate)} each · Used: ${l.qtyActual ?? 0} · Line: ${formatMoney(l.lineTotal)}`}
               badge="Approved"
               tone="Approved"
             />

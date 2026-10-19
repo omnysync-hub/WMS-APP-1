@@ -22,16 +22,16 @@ import { fetchRequests } from "@/services/requestsService";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
 import { haptic } from "@/lib/haptics";
+import { stopContinuousJobRing, markJobAsAccepted } from "@/services/jobAssignmentAlert";
 import type { Job } from "@/types";
 
 const FILTERS = [
   { id: "All", label: "All" },
-  { id: "Assigned", label: "New" },
-  { id: "InProgress", label: "Working" },
-  { id: "Paused", label: "Paused" },
-  { id: "InvPending", label: "Parts pending" },
-  { id: "InvIssued", label: "Parts issued" },
-  { id: "Completed", label: "Done" },
+  { id: "Assigned", label: "Assigned" },
+  { id: "Accepted", label: "Accepted" },
+  { id: "InProgress", label: "In progress" },
+  { id: "PartiallyCompleted", label: "Partially completed" },
+  { id: "Completed", label: "Completed" },
 ] as const;
 
 export default function JobsScreen() {
@@ -46,18 +46,9 @@ export default function JobsScreen() {
   const firstName = employee?.name?.trim().split(/\s+/)[0] ?? "there";
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", employee?.id, filter],
+    queryKey: ["jobs", employee?.id],
     enabled: !!employee?.id && isTechnician,
-    queryFn: () =>
-      fetchJobs(
-        employee!.id,
-        filter === "All" ||
-          filter === "Completed" ||
-          filter === "InvPending" ||
-          filter === "InvIssued"
-          ? undefined
-          : filter
-      ),
+    queryFn: () => fetchJobs(employee!.id),
   });
 
   const requestsQuery = useQuery({
@@ -71,26 +62,20 @@ export default function JobsScreen() {
   const jobs: Job[] = useMemo(() => {
     const list = (jobsQuery.data ?? []).filter((j) => j.status !== "TechnicianReassigned");
     if (filter === "All") return list;
-    if (filter === "Completed") {
-      // AwaitingFeedback / CompletedPendingVerification / Finalized / Verified are all done for the tech
-      return list.filter((j) => isTechnicianDoneStatus(String(j.status)));
-    }
-    if (filter === "InvPending") {
-      return list.filter((j) =>
-        Array.isArray(j.inventoryRequests) &&
-        j.inventoryRequests.some((r) => (r.status || "pending").toLowerCase() === "pending")
-      );
-    }
-    if (filter === "InvIssued") {
+    if (filter === "Assigned") return list.filter((j) => j.status === "Assigned");
+    if (filter === "Accepted") return list.filter((j) => j.status === "Accepted");
+    if (filter === "InProgress") return list.filter((j) => j.status === "InProgress");
+    if (filter === "PartiallyCompleted") {
       return list.filter(
         (j) =>
-          (Array.isArray(j.inventoryRequests) &&
-            j.inventoryRequests.some((r) => (r.status || "").toLowerCase() === "issued")) ||
-          (Array.isArray(j.items) &&
-            j.items.some((it) =>
-              (it.description ?? it.name ?? "").includes("[Issued by Storekeeper]")
-            ))
+          j.status === "Paused" ||
+          j.status === "PartiallyCompleted" ||
+          String(j.status).toLowerCase().includes("partially") ||
+          String(j.status).toLowerCase().includes("paused")
       );
+    }
+    if (filter === "Completed") {
+      return list.filter((j) => isTechnicianDoneStatus(String(j.status)));
     }
     return list.filter((j) => j.status === filter);
   }, [jobsQuery.data, filter]);
@@ -103,24 +88,34 @@ export default function JobsScreen() {
   const acceptOneMutation = useMutation({
     mutationFn: async (jobId: string) => {
       setAcceptingId(jobId);
+      await markJobAsAccepted(jobId, undefined, employee?.id);
       await transitionJob(jobId, {
         action: "accept",
         actor: employee!.name ?? "Technician",
         technicianId: employee!.id,
       });
+      await stopContinuousJobRing();
     },
     onSettled: () => setAcceptingId(null),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      await queryClient.invalidateQueries({ queryKey: ["requests"] });
     },
   });
 
   const batchMutation = useMutation({
-    mutationFn: () => batchAcceptJobs(selectedIds, employee!.id),
+    mutationFn: async () => {
+      for (const id of selectedIds) {
+        await markJobAsAccepted(id, undefined, employee?.id);
+      }
+      await batchAcceptJobs(selectedIds, employee!.id);
+      await stopContinuousJobRing();
+    },
     onSuccess: async () => {
       setSelectedIds([]);
       setSelectMode(false);
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      await queryClient.invalidateQueries({ queryKey: ["requests"] });
     },
   });
 
@@ -178,11 +173,16 @@ export default function JobsScreen() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           gap: space.sm,
-          paddingVertical: 2,
+          paddingVertical: 8,
+          paddingHorizontal: space.lg,
           alignItems: "center",
-          paddingRight: space.lg,
         }}
-        style={{ flexGrow: 0, maxHeight: 56, marginBottom: space.lg }}
+        style={{
+          flexGrow: 0,
+          flexShrink: 0,
+          marginHorizontal: -space.lg,
+          marginBottom: space.md,
+        }}
       >
         {FILTERS.map((f) => {
           const active = filter === f.id;
@@ -196,16 +196,25 @@ export default function JobsScreen() {
                 setFilter(f.id);
               }}
               style={{
-                paddingHorizontal: space.lg,
-                minHeight: tapMin,
-                justifyContent: "center",
+                paddingHorizontal: 16,
+                paddingVertical: 8,
                 borderRadius: radius.full,
                 backgroundColor: active ? colors.primary : colors.surface,
-                borderWidth: 1,
+                borderWidth: 1.5,
                 borderColor: active ? colors.primary : colors.border,
+                justifyContent: "center",
+                alignItems: "center",
               }}
             >
-              <Text style={{ color: colors.text, ...type.label }}>{f.label}</Text>
+              <Text
+                style={{
+                  color: active ? "#FFFFFF" : colors.text,
+                  fontWeight: active ? "800" : "600",
+                  fontSize: 13,
+                }}
+              >
+                {f.label}
+              </Text>
             </Pressable>
           );
         })}

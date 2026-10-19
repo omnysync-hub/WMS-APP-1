@@ -120,7 +120,9 @@ export function isMobileAccessDisabledResponse(status?: number, body?: unknown):
   }
   if (/deactivat|mobile app access|not provisioned|mobile_access/.test(msg)) return true;
   if (/incorrect (current )?password|incorrect (current )?pin/.test(msg)) return false;
-  if (status === 403) return true;
+  // A bare 403 is an authorization refusal for ONE action (ownership, password-change gate, etc.),
+  // not a revoked session. Only the explicit deactivation messages above/codes below sign out.
+  if (status === 403) return data.code === "MOBILE_ACCESS_DISABLED" || data.code === "UNAUTHENTICATED";
   if (
     status === 401 &&
     /unauthorized|unauthenticated|missing or invalid|authentication required|expired.*session|session.*ended|deactivated session|invalid.*session/.test(

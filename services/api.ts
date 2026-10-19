@@ -16,24 +16,37 @@ export const DEFAULT_ERP_BASE_URL =
 /** Mutable for Switch Tenant — also mirrored into SecureStore key `wms_api_url`. */
 export let ERP_BASE_URL = DEFAULT_ERP_BASE_URL;
 
-function normalizeSafeApiBaseUrl(value: string): string | null {
+/**
+ * Switch Tenant is pinned to KNOWN ERP servers only, so a tampered setting can never send the
+ * technician's Bearer token to an arbitrary host. Add new tenants here (requires an app build).
+ */
+const KNOWN_ERP_ORIGINS = new Set<string>([
+  "https://hvac-erp-bay.vercel.app",
+  "https://erp.workmanservices.pk",
+]);
+try {
+  const configured = new URL(DEFAULT_ERP_BASE_URL).origin;
+  if (configured.startsWith("https://")) KNOWN_ERP_ORIGINS.add(configured);
+} catch {
+  /* ignore malformed env */
+}
+
+export function isKnownErpOrigin(origin: string) {
+  return KNOWN_ERP_ORIGINS.has(origin);
+}
+
+export function normalizeSafeApiBaseUrl(value: string): string | null {
   try {
     const parsed = new URL(value.trim());
-    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) return null;
+    if (parsed.username || parsed.password || (parsed.pathname !== "/" && parsed.pathname !== "") || parsed.search || parsed.hash) return null;
     const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol === "https:" && KNOWN_ERP_ORIGINS.has(parsed.origin)) return parsed.origin;
+    // Dev builds only: local ERP over http on a private/LAN address.
     const privateHost =
       host === "localhost" || host === "127.0.0.1" || host === "10.0.2.2" ||
       /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-    if (__DEV__) return parsed.protocol === "https:" || (parsed.protocol === "http:" && privateHost) ? parsed.origin : null;
-
-    let configuredOrigin = "https://erp.workmanservices.pk";
-    try {
-      const candidate = new URL(DEFAULT_ERP_BASE_URL).origin;
-      if (candidate.startsWith("https://")) configuredOrigin = candidate;
-    } catch {
-      /* use production origin */
-    }
-    return parsed.protocol === "https:" && parsed.origin === configuredOrigin ? parsed.origin : null;
+    if (__DEV__ && parsed.protocol === "http:" && privateHost) return parsed.origin;
+    return null;
   } catch {
     return null;
   }
@@ -63,23 +76,7 @@ apiClient.interceptors.request.use(async (config) => {
       config.baseURL = ERP_BASE_URL;
     }
   }
-  // ERP RBAC: jobs.* / procurement.* gates. The verified Bearer token is authoritative on the
-  // server (DB role); these demo actor headers are the fallback for header-gated routes and
-  // SKIP_LOGIN dev sessions. Never override headers a caller set explicitly.
-  try {
-    const { useAuthStore } = await import("@/store/authStore");
-    const employee = useAuthStore.getState().employee;
-    if (employee) {
-      const h = config.headers as Record<string, unknown> & { has?: (k: string) => boolean };
-      const has = (k: string) => (typeof h.has === "function" ? h.has(k) : h[k] !== undefined);
-      if (!has("x-actor-role")) config.headers["x-actor-role"] = String(employee.role || "technician").toLowerCase();
-      if (!has("x-user-id") && employee.id) config.headers["x-user-id"] = employee.id;
-      if (!has("x-actor-name") && employee.name) config.headers["x-actor-name"] = employee.name;
-    }
-  } catch {
-    /* auth store not ready — server still requires a token/role */
-  }
-
+  // Identity/role come ONLY from the signed Bearer token; the server strips any x-actor-* headers.
   const token = await SecureStore.getItemAsync("wms_auth_token");
   if (token) {
     const { isSignedMobileToken } = await import("@/services/authToken");

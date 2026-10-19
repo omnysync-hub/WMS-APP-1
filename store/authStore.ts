@@ -3,6 +3,7 @@ import * as SecureStore from "expo-secure-store";
 import type { Employee } from "@/types";
 import { isSignedMobileToken } from "@/services/authToken";
 import { clearCachedEnrollmentEmbedding } from "@/services/face/embeddingCache";
+import { stopContinuousJobRing } from "@/services/jobAssignmentAlert";
 import { getDatabase } from "@/db/database";
 
 const KEY_TOKEN = "wms_auth_token";
@@ -100,6 +101,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     await getDatabase()
       .then((db) => db.execAsync("DELETE FROM pending_mutations; DELETE FROM local_jobs;"))
       .catch(() => {});
+    void stopContinuousJobRing();
     set({ token: null, employee: null, isAuthenticated: false });
   },
 

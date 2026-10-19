@@ -2,14 +2,15 @@ import { useState } from "react";
 import { Alert, Text, TextInput, View } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { Button } from "@/components/ui/Button";
-import { DEFAULT_ERP_BASE_URL, ERP_BASE_URL, setErpBaseUrl } from "@/services/api";
+import { ERP_BASE_URL, normalizeSafeApiBaseUrl, setErpBaseUrl } from "@/services/api";
 import { colors } from "@/constants/theme";
 import { useAuthStore } from "@/store/authStore";
 
 const PRESETS = [
   { label: "Android Emulator → localhost", url: "http://10.0.2.2:3001" },
   { label: "iOS Simulator → localhost", url: "http://localhost:3001" },
-  { label: "Production", url: "https://erp.workmanservices.pk" },
+  { label: "Production (Vercel)", url: "https://hvac-erp-bay.vercel.app" },
+  { label: "Production (custom domain)", url: "https://erp.workmanservices.pk" },
 ];
 
 export default function SwitchTenantScreen() {
@@ -17,33 +18,16 @@ export default function SwitchTenantScreen() {
 
   async function save(next: string) {
     try {
-      const parsed = new URL(next.trim());
-      if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) {
-        throw new Error("Enter only the server address, without a path, login, query, or fragment.");
+      // Pinned to known Workman servers (plus private-LAN http in dev builds); see services/api.ts.
+      const safe = normalizeSafeApiBaseUrl(next);
+      if (!safe) {
+        throw new Error(
+          __DEV__
+            ? "Use a known Workman server, or an HTTP localhost/private-LAN address while developing."
+            : "This app can connect only to the official Workman servers."
+        );
       }
-
-      const host = parsed.hostname.toLowerCase();
-      const isPrivateIpv4 =
-        /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-      const isLocalDevHost = host === "localhost" || host === "127.0.0.1" || host === "10.0.2.2" || isPrivateIpv4;
-      const configuredProductionOrigin = (() => {
-        try {
-          const origin = new URL(DEFAULT_ERP_BASE_URL).origin;
-          return origin.startsWith("https://") ? origin : "https://erp.workmanservices.pk";
-        } catch {
-          return "https://erp.workmanservices.pk";
-        }
-      })();
-
-      if (__DEV__) {
-        if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && isLocalDevHost)) {
-          throw new Error("Use HTTPS, or an HTTP localhost/private-LAN address while developing.");
-        }
-      } else if (parsed.protocol !== "https:" || parsed.origin !== configuredProductionOrigin) {
-        throw new Error("Production builds can connect only to the configured Workman server.");
-      }
-
-      const cleaned = parsed.origin;
+      const cleaned = safe;
       if (cleaned !== ERP_BASE_URL) {
         // Never carry a signed session to a different host.
         await useAuthStore.getState().logout();
