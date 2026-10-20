@@ -44,10 +44,8 @@ export async function loginWithPassword(input: {
     return { employee: data.employee as Employee };
   } catch (err: any) {
     if (err instanceof LoginError) throw err;
-    const serverError = err?.response?.data?.error || err?.message;
-    if (serverError && typeof serverError === "string") {
-      throw new LoginError("unknown", serverError);
-    }
+    // parseLoginFailure keeps the server's own message (e.g. "mobile access not enabled") and also
+    // the lock countdown / other-device details, so the login screen can show the real reason.
     throw parseLoginFailure(err);
   }
 }

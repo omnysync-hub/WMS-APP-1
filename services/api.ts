@@ -11,7 +11,7 @@ export const DEFAULT_ERP_BASE_URL =
     ? Platform.OS === "android"
       ? "http://10.0.2.2:3001"
       : "http://localhost:3001"
-    : "https://erp.workmanservices.pk");
+    : "https://softwareworkmanservices.com.pk");
 
 /** Mutable for Switch Tenant — also mirrored into SecureStore key `wms_api_url`. */
 export let ERP_BASE_URL = DEFAULT_ERP_BASE_URL;

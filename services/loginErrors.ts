@@ -55,9 +55,19 @@ export function resolveLoginIdentifier(raw: string): {
 /** Maps ERP /api/mobile/auth failure bodies to typed LoginError. */
 export function parseLoginFailure(err: unknown): LoginError {
   if (!axios.isAxiosError(err) || !err.response) {
+    let host = "";
+    try {
+      const base = axios.isAxiosError(err) ? err.config?.baseURL : undefined;
+      host = base ? new URL(base).host : "";
+    } catch {
+      host = "";
+    }
+    const timedOut = axios.isAxiosError(err) && err.code === "ECONNABORTED";
     return new LoginError(
       "unknown",
-      err instanceof Error ? err.message : "Network error. Check your connection."
+      timedOut
+        ? `The server${host ? ` (${host})` : ""} took too long to answer. Check your internet and try again.`
+        : `Can't reach the server${host ? ` (${host})` : ""}. Check your internet connection and try again.`
     );
   }
 
@@ -89,12 +99,21 @@ export function parseLoginFailure(err: unknown): LoginError {
     return new LoginError("device", serverMsg, { status });
   }
 
+  if (status === 429) {
+    return new LoginError("locked", serverMsg, { status });
+  }
+
   if (status === 403) {
+    // Use the ERP's exact reason (suspended / mobile access not enabled), not a generic line.
     return new LoginError(
       "deactivated",
-      "Your mobile access has been disabled — contact your admin/HR",
+      serverMsg !== "Login failed" ? serverMsg : "Your mobile access has been disabled — contact your admin/HR",
       { status }
     );
+  }
+
+  if (status >= 500) {
+    return new LoginError("unknown", "The ERP server had a problem signing you in. Try again in a minute.", { status });
   }
 
   if (status === 401) {

@@ -7,10 +7,10 @@ import { colors } from "@/constants/theme";
 import { useAuthStore } from "@/store/authStore";
 
 const PRESETS = [
+  { label: "Production (softwareworkmanservices.com.pk)", url: "https://softwareworkmanservices.com.pk" },
+  { label: "Production (VPS IP)", url: "http://169.58.158.49" },
   { label: "Android Emulator → localhost", url: "http://10.0.2.2:3001" },
   { label: "iOS Simulator → localhost", url: "http://localhost:3001" },
-  { label: "Production (Vercel)", url: "https://hvac-erp-bay.vercel.app" },
-  { label: "Production (custom domain)", url: "https://erp.workmanservices.pk" },
 ];
 
 export default function SwitchTenantScreen() {

@@ -105,7 +105,7 @@ export default function LoginScreen() {
         setErrorKind(e.kind);
         if (e.kind === "deactivated") {
           setErrorMessage(
-            "Your mobile access has been disabled — contact your admin or HR."
+            e.message || "Your mobile access has been disabled — contact your admin or HR."
           );
         } else if (e.kind === "locked") {
           const secs =
