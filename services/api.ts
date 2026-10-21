@@ -3,6 +3,7 @@ import { Alert, Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { enqueueMutation } from "@/services/syncService";
 import { isMobileAccessDisabledResponse } from "@/services/loginErrors";
+import { describeApiError } from "@/services/apiErrors";
 
 /** Android emulator → host machine. Physical device: set EXPO_PUBLIC_API_URL to LAN IP. */
 export const DEFAULT_ERP_BASE_URL =
@@ -97,6 +98,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   async (error) => {
     if (!axios.isAxiosError(error) || !error.response) {
+      if (axios.isAxiosError(error)) error.message = describeApiError(error);
       return Promise.reject(error);
     }
 
@@ -132,6 +134,8 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // Screens show `e.message`; make it the server's real reason, not "status code 400".
+    error.message = describeApiError(error);
     return Promise.reject(error);
   }
 );
