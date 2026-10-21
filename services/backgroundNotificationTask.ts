@@ -55,8 +55,8 @@ TaskManager.defineTask(
           body: rawBody,
         })
       ) {
-        // High intensity hardware vibration pattern
-        Vibration.vibrate([0, 1000, 400, 1000, 400, 1000], false);
+        // Repeating vibration pattern (true = repeat indefinitely until stopped)
+        Vibration.vibrate([0, 1000, 400, 1000, 400, 1000], true);
         void startContinuousJobRing({
           jobId,
           requestId,

@@ -5,10 +5,11 @@ import {
   useIncomingJobStore,
   type IncomingJobAlert,
 } from "@/store/incomingJobStore";
+import { startNativeAlarm, stopNativeAlarm } from "@/services/nativeAlarm";
 
-/** Android channel identifier for assigned job ringtones (v3 forces fresh channel with MAX priority and bypassDnd) */
-export const JOB_RING_CHANNEL = "job-ring-v3";
-export const URGENT_CHANNEL = "urgent-dispatch-v2";
+/** Android channel identifier for assigned job ringtones (v4: native alarm service + bypassDnd) */
+export const JOB_RING_CHANNEL = "job-ring-v4";
+export const URGENT_CHANNEL = "urgent-dispatch-v3";
 export const GENERAL_CHANNEL = "general-dispatch";
 
 export const JOB_RING_SOUND = "job_ring.wav";
@@ -129,6 +130,11 @@ export async function configureAudioForCriticalAlerts() {
 }
 
 async function playJobRingAudio() {
+  // 1. Native Android alarm service — plays at MAX ALARM stream volume,
+  //    bypasses silent/vibrate/DND, survives app kill and phone lock.
+  startNativeAlarm();
+
+  // 2. JS-layer expo-audio as backup (covers foreground + iOS)
   await configureAudioForCriticalAlerts();
   try {
     if (!activeAudioPlayer) {
@@ -151,6 +157,9 @@ async function playJobRingAudio() {
 }
 
 function stopJobRingAudio() {
+  // Stop native Android alarm service first (ALARM stream)
+  stopNativeAlarm();
+
   if (activeAudioPlayer) {
     try {
       activeAudioPlayer.pause();
