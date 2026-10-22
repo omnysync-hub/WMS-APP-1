@@ -239,6 +239,8 @@ export type AttendanceSubmitPayload = {
   notes?: string;
   /** Sent only for an online backup check after face matching is exhausted. */
   backupPassword?: string;
+  /** Punch action: CHECK_IN marks technician Available & Ready; CHECK_OUT clocks out at end of day */
+  punchType?: "CHECK_IN" | "CHECK_OUT";
 };
 
 export type AttendanceSubmitResult = {

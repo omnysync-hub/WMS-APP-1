@@ -19,6 +19,15 @@ function statusTone(log: AttendanceLog) {
   return "Paused";
 }
 
+function isCheckOut(log: AttendanceLog) {
+  return (
+    log.notes?.includes("[CHECK_OUT]") ||
+    log.type?.toLowerCase() === "check_out" ||
+    log.notes?.toLowerCase().includes("check out") ||
+    log.notes?.toLowerCase().includes("clock out")
+  );
+}
+
 export function PunchLogList({ logs }: { logs: AttendanceLog[] }) {
   if (!logs.length) {
     return (
@@ -36,12 +45,40 @@ export function PunchLogList({ logs }: { logs: AttendanceLog[] }) {
       renderItem={({ item }) => {
         const when = new Date(item.timestamp);
         const zoneName = item.geofenceZone?.name ?? "—";
+        const checkOut = isCheckOut(item);
+        const displayNotes = item.notes
+          ? item.notes.replace(/^\[(CHECK_IN|CHECK_OUT)\]\s*/i, "")
+          : null;
+
         return (
           <Card style={{ marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
-              <StatusBadge label={statusLabel(item)} tone={statusTone(item)} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 6,
+                    backgroundColor: checkOut ? "rgba(245, 158, 11, 0.15)" : "rgba(34, 197, 94, 0.15)",
+                    borderWidth: 1,
+                    borderColor: checkOut ? "rgba(245, 158, 11, 0.4)" : "rgba(34, 197, 94, 0.4)",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: checkOut ? "#F59E0B" : "#22C55E",
+                      fontSize: 11,
+                      fontWeight: "700",
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {checkOut ? "CHECK OUT" : "CHECK IN"}
+                  </Text>
+                </View>
+                <StatusBadge label={statusLabel(item)} tone={statusTone(item)} />
+              </View>
               <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-                {when.toLocaleDateString()} · {when.toLocaleTimeString()}
+                {when.toLocaleDateString()} · {when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </Text>
             </View>
             <Text style={{ color: colors.text, marginTop: 8, fontWeight: "600" }}>
@@ -52,9 +89,9 @@ export function PunchLogList({ logs }: { logs: AttendanceLog[] }) {
                 {item.flagReason}
               </Text>
             )}
-            {!!item.notes && !item.flagReason && (
+            {!!displayNotes && !item.flagReason && (
               <Text style={{ color: colors.textDim, marginTop: 6, fontSize: 12 }} numberOfLines={2}>
-                {item.notes}
+                {displayNotes}
               </Text>
             )}
           </Card>

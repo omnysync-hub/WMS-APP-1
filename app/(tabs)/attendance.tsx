@@ -24,7 +24,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useSyncStore } from "@/store/syncStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { colors, space, type } from "@/constants/theme";
-import type { GeofenceZone } from "@/types";
+import type { AttendanceLog, GeofenceZone } from "@/types";
 import type { DetectedFace } from "@/services/face/pipeline";
 
 export default function AttendanceScreen() {
@@ -36,6 +36,7 @@ export default function AttendanceScreen() {
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [showCamera, setShowCamera] = useState(false);
+  const [targetPunchType, setTargetPunchType] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
   const [sessionZones, setSessionZones] = useState<GeofenceZone[] | null>(null);
   const [matchAttempts, setMatchAttempts] = useState(0);
   const [showBackupVerification, setShowBackupVerification] = useState(false);
@@ -91,13 +92,61 @@ export default function AttendanceScreen() {
     queryFn: () => fetchAttendance(employee!.id),
   });
 
+  // Calculate today's status
+  const todayLogs = useMemo(() => {
+    if (!history.data?.length) return [];
+    const todayStr = new Date().toDateString();
+    return history.data
+      .filter((l) => new Date(l.timestamp).toDateString() === todayStr)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [history.data]);
+
+  const latestTodayPunch = todayLogs[0] ?? null;
+  const isLatestCheckOut = Boolean(
+    latestTodayPunch &&
+      (latestTodayPunch.notes?.includes("[CHECK_OUT]") ||
+        latestTodayPunch.type?.toLowerCase() === "check_out" ||
+        latestTodayPunch.notes?.toLowerCase().includes("check out") ||
+        latestTodayPunch.notes?.toLowerCase().includes("clock out"))
+  );
+
+  const isCheckedIn = Boolean(latestTodayPunch && !isLatestCheckOut);
+
+  const firstTodayCheckIn = useMemo(() => {
+    const checkIns = todayLogs.filter(
+      (l) =>
+        !l.notes?.includes("[CHECK_OUT]") &&
+        l.type?.toLowerCase() !== "check_out" &&
+        !l.notes?.toLowerCase().includes("check out") &&
+        !l.notes?.toLowerCase().includes("clock out")
+    );
+    return checkIns[checkIns.length - 1] ?? null;
+  }, [todayLogs]);
+
+  const dutyHoursText = useMemo(() => {
+    if (!firstTodayCheckIn) return null;
+    const start = new Date(firstTodayCheckIn.timestamp).getTime();
+    const end = isCheckedIn
+      ? Date.now()
+      : latestTodayPunch
+        ? new Date(latestTodayPunch.timestamp).getTime()
+        : Date.now();
+    const diffMs = Math.max(0, end - start);
+    const totalMinutes = Math.floor(diffMs / (1000 * 60));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    return `${hours}h ${minutes}m`;
+  }, [firstTodayCheckIn, isCheckedIn, latestTodayPunch]);
+
   const nearest = useMemo(() => {
     if (!coords || !sessionZones?.length) return null;
     return findNearestZone(coords.lat, coords.lng, sessionZones);
   }, [coords, sessionZones]);
 
   const mutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (punchTypeToSubmit?: "CHECK_IN" | "CHECK_OUT") => {
+      const pType = punchTypeToSubmit || targetPunchType;
       if (!employee?.id || !coords) throw new Error("Missing employee or GPS");
       const zones = await loadZones();
       const near = findNearestZone(coords.lat, coords.lng, zones);
@@ -117,6 +166,7 @@ export default function AttendanceScreen() {
         faceMatchScore,
         livenessScore: Number(livenessScore),
         deviceId,
+        punchType: pType,
         backupPassword: showBackupVerification ? backupPassword : undefined,
         notes:
           notes ??
@@ -129,6 +179,8 @@ export default function AttendanceScreen() {
       setShowCamera(false);
       captureTimestampRef.current = null;
       qc.invalidateQueries({ queryKey: ["attendance"] });
+
+      const isCheckOutAction = targetPunchType === "CHECK_OUT";
 
       if (result.queued) {
         setShowBackupVerification(false);
@@ -148,7 +200,7 @@ export default function AttendanceScreen() {
             : "";
         setLastResultBanner({
           kind: "error",
-          title: "Check-in didn’t go through",
+          title: isCheckOutAction ? "Check-out didn’t go through" : "Check-in didn’t go through",
           detail: `${result.message}${staleHint}`,
         });
         return;
@@ -157,39 +209,48 @@ export default function AttendanceScreen() {
       setShowBackupVerification(false);
       setBackupPassword("");
 
+      const zone = result.zoneName ?? nearest?.zone.name ?? "site";
+
       if (result.status === "accepted-but-flagged") {
-        const zone = result.zoneName ?? nearest?.zone.name ?? "site";
         setLastResultBanner({
           kind: "flagged",
-          title: `Checked in at ${zone}`,
+          title: isCheckOutAction ? `Checked out from ${zone}` : `Checked in at ${zone}`,
           detail: `Office will review: ${result.flagReason ?? result.message}`,
         });
         return;
       }
 
-      const zone = result.zoneName ?? nearest?.zone.name ?? "site";
-      setLastResultBanner({
-        kind: "ok",
-        title: `You’re checked in at ${zone}`,
-        detail: result.message || "All set — have a good shift.",
-      });
+      if (isCheckOutAction) {
+        setLastResultBanner({
+          kind: "ok",
+          title: `Clocked out successfully`,
+          detail: result.message || "Shift finished. Check-out recorded on ERP.",
+        });
+      } else {
+        setLastResultBanner({
+          kind: "ok",
+          title: `You’re checked in at ${zone}`,
+          detail: result.message || "Marked Available & Ready for jobs on ERP.",
+        });
+      }
     },
     onError: (e: Error) => {
       setLastResultBanner({
         kind: "error",
-        title: "Check-in failed",
+        title: targetPunchType === "CHECK_OUT" ? "Check-out failed" : "Check-in failed",
         detail: e.message,
       });
     },
   });
 
-  async function openCameraFlow() {
+  async function openCameraFlow(pType: "CHECK_IN" | "CHECK_OUT" = "CHECK_IN") {
+    setTargetPunchType(pType);
     setLastResultBanner(null);
     if (!coords) {
       setLastResultBanner({
         kind: "error",
         title: "Location needed",
-        detail: "Turn on GPS, then try Check in again.",
+        detail: `Turn on GPS, then try ${pType === "CHECK_OUT" ? "Check out" : "Check in"} again.`,
       });
       await refreshLocation();
       return;
@@ -199,10 +260,14 @@ export default function AttendanceScreen() {
       const emb = employee?.id ? await hydrateEnrollmentEmbedding(employee.id) : null;
       enrolledRef.current = emb;
       if (!emb) {
-        Alert.alert("Face not set up", "Take your enrollment photos once, then check in with your face.", [
-          { text: "Cancel", style: "cancel" },
-          { text: "Set up face", onPress: () => router.push("/enrollment") },
-        ]);
+        Alert.alert(
+          "Face not set up",
+          "Take your enrollment photos once, then mark attendance with your face.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Set up face", onPress: () => router.push("/enrollment") },
+          ]
+        );
         return;
       }
     }
@@ -230,7 +295,7 @@ export default function AttendanceScreen() {
     ) {
       Alert.alert(
         "Far from site",
-        `You look about ${Math.round(near.distanceM)}m from ${near.zone.name}. Check-in may be flagged.`,
+        `You look about ${Math.round(near.distanceM)}m from ${near.zone.name}. Punch may be flagged.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Continue anyway", onPress: proceed },
@@ -242,7 +307,7 @@ export default function AttendanceScreen() {
     if (near && !near.within) {
       Alert.alert(
         "Away from site",
-        `Outside ${near.zone.name} (${Math.round(near.distanceM)}m). You can still try — office may review.`,
+        `Outside ${near.zone.name} (${Math.round(near.distanceM)}m). You can still continue — office may review.`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Continue", onPress: proceed },
@@ -329,7 +394,7 @@ export default function AttendanceScreen() {
         notes: `Face match ${result.faceMatchScore.toFixed(3)} · liveness ${result.livenessScore.toFixed(3)}`,
       };
       setShowCamera(false);
-      mutation.mutate();
+      mutation.mutate(targetPunchType);
     } finally {
       setProcessingFace(false);
     }
@@ -359,7 +424,7 @@ export default function AttendanceScreen() {
       notes: "Backup verification used after face match attempts were exhausted",
     };
     logFaceScores({ outcome: "password_fallback_submit" });
-    mutation.mutate();
+    mutation.mutate(targetPunchType);
   }
 
   const bannerTone =
@@ -387,8 +452,8 @@ export default function AttendanceScreen() {
       }
     >
       <ScreenHeader
-        title="Check-in"
-        subtitle="One tap, then blink once at the camera."
+        title="Attendance & Duty"
+        subtitle="Check in to start shift & get assigned jobs. Check out at day's end."
       />
 
       {!isOnline && (
@@ -396,8 +461,8 @@ export default function AttendanceScreen() {
           title="You’re offline"
           detail={
             pendingCount > 0
-              ? `${pendingCount} check-in(s) waiting to sync.`
-              : "Check-ins save on this phone until you’re back online."
+              ? `${pendingCount} punch(es) waiting to sync.`
+              : "Attendance punches save on this phone until you’re back online."
           }
           tone="warn"
         />
@@ -413,11 +478,94 @@ export default function AttendanceScreen() {
 
       {lastResultBanner?.kind === "error" && !showCamera && !showBackupVerification && (
         <Button
-          title="Try again"
-          onPress={() => void openCameraFlow()}
+          title={`Try ${targetPunchType === "CHECK_OUT" ? "Check out" : "Check in"} again`}
+          onPress={() => void openCameraFlow(targetPunchType)}
           style={{ marginBottom: space.lg }}
         />
       )}
+
+      {/* Duty Status Hero Card */}
+      <Card
+        style={{
+          marginBottom: space.lg,
+          borderWidth: 1.5,
+          borderColor: isCheckedIn ? "rgba(34, 197, 94, 0.4)" : "rgba(100, 116, 139, 0.3)",
+          backgroundColor: isCheckedIn ? "rgba(34, 197, 94, 0.05)" : colors.surface,
+        }}
+      >
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <View
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor: isCheckedIn ? "#22C55E" : latestTodayPunch ? "#F59E0B" : "#94A3B8",
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "800",
+                  color: isCheckedIn ? "#22C55E" : latestTodayPunch ? "#F59E0B" : colors.text,
+                }}
+              >
+                {isCheckedIn
+                  ? "Available & Ready (Checked In)"
+                  : latestTodayPunch
+                    ? "Checked Out"
+                    : "Off Duty (Not Checked In)"}
+              </Text>
+            </View>
+
+            <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }}>
+              {isCheckedIn
+                ? `Available for dispatcher job assignment on ERP.`
+                : latestTodayPunch
+                  ? `Shift ended. Clock in again if starting another shift.`
+                  : `Check in with your face to mark presence and become available.`}
+            </Text>
+          </View>
+        </View>
+
+        {/* Punch Time & Duty Stats */}
+        {latestTodayPunch && (
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              backgroundColor: colors.surfaceElevated,
+              padding: space.md,
+              borderRadius: 8,
+              marginTop: space.md,
+            }}
+          >
+            <View>
+              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "600", textTransform: "uppercase" }}>
+                Latest Punch
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 15, fontWeight: "700", marginTop: 2 }}>
+                {new Date(latestTodayPunch.timestamp).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </Text>
+            </View>
+
+            {dutyHoursText && (
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "600", textTransform: "uppercase" }}>
+                  Hours on Duty
+                </Text>
+                <Text style={{ color: colors.primary, fontSize: 15, fontWeight: "700", marginTop: 2 }}>
+                  {dutyHoursText}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+      </Card>
 
       <GeofenceMapCard
         label={
@@ -438,7 +586,7 @@ export default function AttendanceScreen() {
             mode="checkin"
             enableBlinkChallenge
             busy={processingFace || mutation.isPending}
-            captureLabel="Verify & check in"
+            captureLabel={targetPunchType === "CHECK_OUT" ? "Verify & Check Out" : "Verify & Check In"}
             onCancel={() => setShowCamera(false)}
             onCaptured={({ uri, face }) => void onFaceCaptured(uri, face)}
           />
@@ -446,10 +594,10 @@ export default function AttendanceScreen() {
       ) : showBackupVerification ? (
         <Card style={{ marginTop: space.lg }}>
           <Text style={{ color: colors.text, marginBottom: space.sm, ...type.body, fontWeight: "800" }}>
-            Backup verification
+            Backup verification ({targetPunchType === "CHECK_OUT" ? "Check Out" : "Check In"})
           </Text>
           <Text style={{ color: colors.textMuted, marginBottom: space.md, ...type.subtitle }}>
-            Enter your work password. The office may review this check-in.
+            Enter your work password. The office may review this punch.
           </Text>
           <TextInput
             value={backupPassword}
@@ -471,7 +619,7 @@ export default function AttendanceScreen() {
             }}
           />
           <Button
-            title="Verify & check in"
+            title={targetPunchType === "CHECK_OUT" ? "Verify & Check Out" : "Verify & Check In"}
             loading={mutation.isPending}
             disabled={!isOnline}
             onPress={submitBackupVerification}
@@ -479,22 +627,57 @@ export default function AttendanceScreen() {
         </Card>
       ) : (
         <View style={{ marginTop: space.lg, gap: space.md }}>
+          {isCheckedIn ? (
+            /* Checked In State: Primary action is Check Out, with secondary Re-Punch option */
+            <>
+              <Button
+                title="Check Out (Clock Out)"
+                loading={mutation.isPending && targetPunchType === "CHECK_OUT"}
+                onPress={() => void openCameraFlow("CHECK_OUT")}
+                style={{
+                  minHeight: 60,
+                  backgroundColor: "#DC2626",
+                }}
+              />
+              <Button
+                title="Re-Punch Check In (Update Location)"
+                variant="secondary"
+                loading={mutation.isPending && targetPunchType === "CHECK_IN"}
+                onPress={() => void openCameraFlow("CHECK_IN")}
+                style={{ minHeight: 48 }}
+              />
+            </>
+          ) : (
+            /* Checked Out / Off Duty State: Primary action is Check In */
+            <>
+              <Button
+                title="Check In (Clock In)"
+                loading={mutation.isPending && targetPunchType === "CHECK_IN"}
+                onPress={() => void openCameraFlow("CHECK_IN")}
+                style={{ minHeight: 64 }}
+              />
+              {latestTodayPunch && (
+                <Button
+                  title="Check Out Again"
+                  variant="secondary"
+                  loading={mutation.isPending && targetPunchType === "CHECK_OUT"}
+                  onPress={() => void openCameraFlow("CHECK_OUT")}
+                  style={{ minHeight: 48 }}
+                />
+              )}
+            </>
+          )}
+
           <Button
-            title="Check in now"
-            loading={mutation.isPending}
-            onPress={() => void openCameraFlow()}
-            style={{ minHeight: 64 }}
-          />
-          <Button
-            title="Set up face first"
-            variant="secondary"
+            title="Set up face photos"
+            variant="ghost"
             onPress={() => router.push("/enrollment")}
           />
         </View>
       )}
 
       <Button
-        title={showHistory ? "Hide recent check-ins" : "Show recent check-ins"}
+        title={showHistory ? "Hide today's logs" : "Show punch history"}
         variant="ghost"
         size="md"
         onPress={() => setShowHistory((v) => !v)}
@@ -510,7 +693,7 @@ export default function AttendanceScreen() {
               marginBottom: space.sm,
             }}
           >
-            Recent
+            Attendance Logs
           </Text>
           <PunchLogList logs={history.data ?? []} />
         </>

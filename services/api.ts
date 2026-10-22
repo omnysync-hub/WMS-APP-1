@@ -379,6 +379,7 @@ export const api = {
     deviceId: string;
     notes?: string;
     backupPassword?: string;
+    punchType?: "CHECK_IN" | "CHECK_OUT";
   }) =>
     apiRequest({
       method: "POST",
