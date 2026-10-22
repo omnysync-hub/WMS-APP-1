@@ -15,7 +15,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Minus, Package, Plus, Search, Trash2, X } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { fetchWarehouseProducts, requestJobInventory } from "@/services/jobsService";
+import {
+  fetchPhysicalInventoryProducts,
+  isPhysicalInventoryProduct,
+  requestJobInventory,
+} from "@/services/jobsService";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
 import { formatMoney } from "@/lib/jobLineFormat";
@@ -43,11 +47,13 @@ export default function InventoryRequestModal() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   const productsQuery = useQuery({
-    queryKey: ["warehouse-products"],
-    queryFn: fetchWarehouseProducts,
+    queryKey: ["physical-warehouse-products"],
+    queryFn: fetchPhysicalInventoryProducts,
   });
 
-  const products = productsQuery.data ?? [];
+  const products = useMemo(() => {
+    return (productsQuery.data ?? []).filter(isPhysicalInventoryProduct);
+  }, [productsQuery.data]);
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();

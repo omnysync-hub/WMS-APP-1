@@ -10,10 +10,10 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react-native";
+import { Check, Plus, Trash2, Wrench } from "lucide-react-native";
 import { Button } from "@/components/ui/Button";
 import { ScreenHeader } from "@/components/ui/ScreenHeader";
-import { addJobServices, fetchCatalogServices, fetchJob } from "@/services/jobsService";
+import { addJobServices, fetchCatalogServices, fetchJob, isServiceProduct } from "@/services/jobsService";
 import { InlineBanner } from "@/components/ui/InlineBanner";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
@@ -46,7 +46,7 @@ export default function AddServicesModal() {
   const router = useRouter();
   const qc = useQueryClient();
   const employee = useAuthStore((s) => s.employee);
-  const [rows, setRows] = useState<Row[]>([emptyRow()]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [search, setSearch] = useState("");
 
   const jobQuery = useQuery({
@@ -60,17 +60,19 @@ export default function AddServicesModal() {
     queryFn: fetchCatalogServices,
   });
 
-  const catalog = catalogQuery.data ?? [];
+  // Strictly filter to ensure ONLY services are in catalog
+  const catalog = useMemo(() => {
+    return (catalogQuery.data ?? []).filter(isServiceProduct);
+  }, [catalogQuery.data]);
+
   const filteredCatalog = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return catalog.slice(0, 12);
-    return catalog
-      .filter(
-        (p) =>
-          (p.name || "").toLowerCase().includes(q) ||
-          (p.sku || "").toLowerCase().includes(q)
-      )
-      .slice(0, 20);
+    if (!q) return catalog;
+    return catalog.filter(
+      (p) =>
+        (p.name || "").toLowerCase().includes(q) ||
+        (p.sku || "").toLowerCase().includes(q)
+    );
   }, [catalog, search]);
 
   const total = useMemo(
@@ -93,7 +95,7 @@ export default function AddServicesModal() {
           unitRate: Math.max(0, Number(r.unitRate) || 0),
         }))
         .filter((s) => s.description.length > 0);
-      if (!services.length) throw new Error("Add at least one service name");
+      if (!services.length) throw new Error("Select or add at least one service");
       return addJobServices(jobId, services, employee?.name ?? "Technician");
     },
     onSuccess: () => {
@@ -116,27 +118,20 @@ export default function AddServicesModal() {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
-  function pickCatalog(p: { id: string; name: string; unitPrice?: number }) {
+  function toggleService(p: { id: string; name: string; unitPrice?: number }) {
     void haptic.select();
     setRows((prev) => {
-      const blank = prev.find((r) => !r.description.trim());
-      if (blank) {
-        return prev.map((r) =>
-          r.key === blank.key
-            ? {
-                ...r,
-                description: p.name,
-                unitRate: String(p.unitPrice ?? 0),
-                quantity: r.quantity || "1",
-                catalogId: p.id,
-              }
-            : r
-        );
+      const existing = prev.find(
+        (r) => r.catalogId === p.id || r.description.trim().toLowerCase() === p.name.trim().toLowerCase()
+      );
+      if (existing) {
+        // Toggle off if already selected
+        return prev.filter((r) => r.key !== existing.key);
       }
       return [
         ...prev,
         {
-          ...emptyRow(),
+          key: `cat-${p.id}`,
           description: p.name,
           unitRate: String(p.unitPrice ?? 0),
           quantity: "1",
@@ -144,7 +139,21 @@ export default function AddServicesModal() {
         },
       ];
     });
-    setSearch("");
+  }
+
+  function updateQty(key: string, delta: number) {
+    void haptic.select();
+    setRows((prev) =>
+      prev
+        .map((r) => {
+          if (r.key !== key) return r;
+          const curr = Math.max(1, Number(r.quantity) || 1);
+          const next = curr + delta;
+          if (next <= 0) return null;
+          return { ...r, quantity: String(next) };
+        })
+        .filter((r): r is Row => r !== null)
+    );
   }
 
   return (
@@ -155,7 +164,7 @@ export default function AddServicesModal() {
     >
       <ScreenHeader
         title="Add services"
-        subtitle={`Job ${jobNumber || jobId} — each service is qty 1`}
+        subtitle={`Job ${jobNumber || jobId} — select billable services`}
       />
 
       {jobQuery.isLoading ? (
@@ -171,141 +180,227 @@ export default function AddServicesModal() {
         </View>
       ) : (
         <>
+          {/* Service Search Bar */}
           <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
-            Pick from catalog (optional)
+            SELECT SERVICES ({catalog.length} AVAILABLE)
           </Text>
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search service name…"
+            placeholder="Search service name (e.g. Jet Wash, Leak Test)..."
             placeholderTextColor={colors.textDim}
             autoCorrect={false}
-            style={[field, { marginBottom: space.sm }]}
+            style={[field, { marginBottom: space.md }]}
           />
 
-      {catalogQuery.isLoading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginBottom: space.md }} />
-      ) : filteredCatalog.length > 0 ? (
-        <View style={{ gap: 8, marginBottom: space.lg }}>
-          {filteredCatalog.map((p) => (
-            <Pressable
-              key={p.id}
-              onPress={() => pickCatalog(p)}
+          {/* Catalog Services Selection List */}
+          {catalogQuery.isLoading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginBottom: space.md }} />
+          ) : filteredCatalog.length > 0 ? (
+            <View style={{ gap: 8, marginBottom: space.lg }}>
+              {filteredCatalog.map((p) => {
+                const isSelected = rows.some(
+                  (r) => r.catalogId === p.id || r.description.trim().toLowerCase() === p.name.trim().toLowerCase()
+                );
+                return (
+                  <Pressable
+                    key={p.id}
+                    onPress={() => toggleService(p)}
+                    style={{
+                      padding: space.md,
+                      borderRadius: radius.md,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? colors.primary : colors.border,
+                      backgroundColor: isSelected ? "rgba(34, 197, 94, 0.08)" : colors.surface,
+                      minHeight: tapMin,
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, marginRight: 8 }}>
+                      <Wrench size={18} color={isSelected ? colors.primary : colors.textDim} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text, fontWeight: "700", fontSize: 14 }}>
+                          {p.name}
+                        </Text>
+                        <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 2 }}>
+                          {p.sku ? `${p.sku} · ` : ""}
+                          {formatMoney(p.unitPrice)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                        borderRadius: 6,
+                        backgroundColor: isSelected ? colors.primary : colors.surfaceElevated,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: isSelected ? "#FFFFFF" : colors.primary,
+                          fontWeight: "700",
+                          fontSize: 12,
+                        }}
+                      >
+                        {isSelected ? "Selected ✓" : "+ Add"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <Text style={{ color: colors.textMuted, marginBottom: space.lg, ...type.subtitle }}>
+              No services match &ldquo;{search}&rdquo;.
+            </Text>
+          )}
+
+          {/* Selected Services Section */}
+          <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
+            SERVICES TO ADD ({rows.length})
+          </Text>
+
+          {rows.length === 0 ? (
+            <View
               style={{
-                padding: space.md,
+                padding: space.lg,
                 borderRadius: radius.md,
                 borderWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.surface,
-                minHeight: tapMin,
+                alignItems: "center",
+                marginBottom: space.lg,
               }}
             >
-              <Text style={{ color: colors.text, fontWeight: "700" }}>{p.name}</Text>
-              <Text style={{ color: colors.textDim, fontSize: 12, marginTop: 4 }}>
-                {p.sku ? `${p.sku} · ` : ""}
-                {formatMoney(p.unitPrice)}
+              <Text style={{ color: colors.textDim, fontSize: 13 }}>
+                Tap &ldquo;+ Add&rdquo; on any service above to include it in this job.
               </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : (
-        <Text style={{ color: colors.textMuted, marginBottom: space.lg, ...type.subtitle }}>
-          No catalog match — type custom services below.
-        </Text>
-      )}
-
-      <Text style={{ color: colors.textDim, marginBottom: space.sm, ...type.label }}>
-        Services to add
-      </Text>
-
-      {rows.map((row, idx) => (
-        <View
-          key={row.key}
-          style={{
-            marginBottom: space.md,
-            padding: space.md,
-            borderRadius: radius.md,
-            borderWidth: 1,
-            borderColor: colors.border,
-            backgroundColor: colors.surface,
-            gap: space.sm,
-          }}
-        >
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ color: colors.text, fontWeight: "800" }}>Service {idx + 1}</Text>
-            {rows.length > 1 ? (
-              <Pressable
-                onPress={() => {
-                  void haptic.select();
-                  setRows((prev) => prev.filter((r) => r.key !== row.key));
+            </View>
+          ) : (
+            rows.map((row, idx) => (
+              <View
+                key={row.key}
+                style={{
+                  marginBottom: space.md,
+                  padding: space.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  gap: space.sm,
                 }}
-                style={{ minHeight: tapMin, justifyContent: "center", paddingHorizontal: 4 }}
               >
-                <Trash2 size={18} color={colors.danger} />
-              </Pressable>
-            ) : null}
-          </View>
-          <TextInput
-            value={row.description}
-            onChangeText={(t) => updateRow(row.key, { description: t })}
-            placeholder="Service name"
-            placeholderTextColor={colors.textDim}
-            style={field}
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ color: colors.text, fontWeight: "800" }}>Service {idx + 1}</Text>
+                  <Pressable
+                    onPress={() => {
+                      void haptic.select();
+                      setRows((prev) => prev.filter((r) => r.key !== row.key));
+                    }}
+                    style={{ minHeight: tapMin, justifyContent: "center", paddingHorizontal: 4 }}
+                  >
+                    <Trash2 size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+                <TextInput
+                  value={row.description}
+                  onChangeText={(t) => updateRow(row.key, { description: t })}
+                  placeholder="Service name"
+                  placeholderTextColor={colors.textDim}
+                  style={field}
+                />
+                <View style={{ flexDirection: "row", gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>
+                      Price (PKR)
+                    </Text>
+                    <TextInput
+                      value={row.unitRate}
+                      onChangeText={(t) => updateRow(row.key, { unitRate: t.replace(/[^\d.]/g, "") })}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      placeholderTextColor={colors.textDim}
+                      style={field}
+                    />
+                  </View>
+
+                  <View style={{ width: 120 }}>
+                    <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>
+                      Quantity
+                    </Text>
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        backgroundColor: colors.surfaceElevated,
+                        borderRadius: radius.md,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        height: 48,
+                      }}
+                    >
+                      <Pressable
+                        onPress={() => updateQty(row.key, -1)}
+                        style={{ width: 36, height: 48, alignItems: "center", justifyContent: "center" }}
+                      >
+                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>-</Text>
+                      </Pressable>
+                      <Text
+                        style={{
+                          flex: 1,
+                          color: colors.text,
+                          fontWeight: "800",
+                          fontSize: 15,
+                          textAlign: "center",
+                        }}
+                      >
+                        {row.quantity}
+                      </Text>
+                      <Pressable
+                        onPress={() => updateQty(row.key, 1)}
+                        style={{ width: 36, height: 48, alignItems: "center", justifyContent: "center" }}
+                      >
+                        <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>+</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={{ color: colors.textMuted, fontSize: 12 }}>
+                  {Math.max(1, Number(row.quantity) || 1)} unit(s) ·{" "}
+                  {formatMoney(
+                    (Math.max(0, Number(row.unitRate) || 0)) * (Math.max(1, Number(row.quantity) || 1))
+                  )}
+                </Text>
+              </View>
+            ))
+          )}
+
+          <Button
+            title="+ Custom Service"
+            variant="secondary"
+            size="md"
+            icon={<Plus size={18} color={colors.text} />}
+            onPress={() => {
+              void haptic.press();
+              setRows((prev) => [...prev, emptyRow()]);
+            }}
+            style={{ marginBottom: space.lg }}
           />
-          <View style={{ flexDirection: "row", gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>Price (PKR)</Text>
-              <TextInput
-                value={row.unitRate}
-                onChangeText={(t) => updateRow(row.key, { unitRate: t.replace(/[^\d.]/g, "") })}
-                keyboardType="decimal-pad"
-                placeholder="0"
-                placeholderTextColor={colors.textDim}
-                style={field}
-              />
-            </View>
 
-            <View style={{ width: 80 }}>
-              <Text style={{ color: colors.textDim, fontSize: 11, fontWeight: "700", marginBottom: 4 }}>Qty</Text>
-              <TextInput
-                value={row.quantity}
-                onChangeText={(t) => updateRow(row.key, { quantity: t.replace(/[^\d]/g, "") })}
-                keyboardType="number-pad"
-                placeholder="1"
-                placeholderTextColor={colors.textDim}
-                style={[field, { textAlign: "center" }]}
-              />
-            </View>
-          </View>
-
-          <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-            {Math.max(1, Number(row.quantity) || 1)} unit(s) · {formatMoney((Math.max(0, Number(row.unitRate) || 0)) * (Math.max(1, Number(row.quantity) || 1)))}
+          <Text style={{ color: colors.textMuted, marginBottom: space.sm, ...type.subtitle }}>
+            {rows.filter((r) => r.description.trim()).length} service(s) ready · Total {formatMoney(total)}
           </Text>
-        </View>
-      ))}
 
-      <Button
-        title="Add another service"
-        variant="secondary"
-        size="md"
-        icon={<Plus size={18} color={colors.text} />}
-        onPress={() => {
-          void haptic.press();
-          setRows((prev) => [...prev, emptyRow()]);
-        }}
-        style={{ marginBottom: space.lg }}
-      />
-
-      <Text style={{ color: colors.textMuted, marginBottom: space.sm, ...type.subtitle }}>
-        {rows.filter((r) => r.description.trim()).length} ready · Total {formatMoney(total)}
-      </Text>
-
-      <Button
-        title="Save services"
-        loading={mutation.isPending}
-        disabled={!rows.some((r) => r.description.trim())}
-        onPress={() => mutation.mutate()}
-      />
+          <Button
+            title="Save services to job"
+            loading={mutation.isPending}
+            disabled={!rows.some((r) => r.description.trim())}
+            onPress={() => mutation.mutate()}
+          />
         </>
       )}
     </ScrollView>

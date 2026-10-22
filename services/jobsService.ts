@@ -79,6 +79,37 @@ export async function returnJobStock(
   return api.returnJobStock(jobId, input);
 }
 
+export function isServiceProduct(p: {
+  isService?: boolean;
+  sku?: string;
+  unit?: string;
+}) {
+  if (p.isService === true) return true;
+  const sku = (p.sku || "").toUpperCase();
+  if (
+    sku.startsWith("SRV-") ||
+    sku.startsWith("SVC-") ||
+    sku.startsWith("SERVICE-") ||
+    sku.startsWith("LABOR-") ||
+    sku.startsWith("LBR-")
+  ) {
+    return true;
+  }
+  const unit = (p.unit || "").toLowerCase();
+  if (["service", "visit", "job", "hr", "hour", "labor"].includes(unit)) {
+    return true;
+  }
+  return false;
+}
+
+export function isPhysicalInventoryProduct(p: {
+  isService?: boolean;
+  sku?: string;
+  unit?: string;
+}) {
+  return !isServiceProduct(p);
+}
+
 export async function fetchWarehouseProducts() {
   const { data } = await api.getInventoryProducts();
   const list = Array.isArray(data) ? data : data?.products ?? [];
@@ -95,12 +126,12 @@ export async function fetchWarehouseProducts() {
 
 export async function fetchCatalogServices() {
   const products = await fetchWarehouseProducts();
-  return products.filter(
-    (p) =>
-      p.isService ||
-      (p.sku && (p.sku.startsWith("SRV-") || p.sku.startsWith("SVC-"))) ||
-      ["service", "visit", "job", "hr", "hour"].includes((p.unit || "").toLowerCase())
-  );
+  return products.filter(isServiceProduct);
+}
+
+export async function fetchPhysicalInventoryProducts() {
+  const products = await fetchWarehouseProducts();
+  return products.filter(isPhysicalInventoryProduct);
 }
 
 /** ERP PATCH action: add_service — syncs line items to job in ERP. */
