@@ -9,7 +9,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { BellRing, Check, VolumeX, ArrowRight } from "lucide-react-native";
+import { BellRing, Check, ArrowRight } from "lucide-react-native";
 import { useIncomingJobStore } from "@/store/incomingJobStore";
 import { stopContinuousJobRing, markJobAsAccepted } from "@/services/jobAssignmentAlert";
 import { transitionJob } from "@/services/jobsService";
@@ -78,12 +78,6 @@ export function IncomingJobRingBanner() {
     }
   }
 
-  async function handleSilence() {
-    void haptic.tap();
-    await stopContinuousJobRing();
-    toast("Alarm silenced.", "info");
-  }
-
   function handleOpenDetails() {
     void haptic.tap();
     if (incoming?.jobId) {
@@ -117,16 +111,9 @@ export function IncomingJobRingBanner() {
             </View>
           </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Silence alarm"
-            onPress={handleSilence}
-            hitSlop={8}
-            style={styles.silenceBtn}
-          >
-            <VolumeX size={16} color={colors.textDim} />
-            <Text style={styles.silenceText}>Mute</Text>
-          </Pressable>
+          <View style={styles.alarmBadge}>
+            <Text style={styles.alarmBadgeText}>LOUD ALARM</Text>
+          </View>
         </View>
 
         <View style={styles.bodyWrap}>
@@ -224,21 +211,19 @@ const styles = StyleSheet.create({
     color: colors.textDim,
     fontWeight: "600",
   },
-  silenceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 4,
+  alarmBadge: {
+    paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: radius.sm,
-    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(231, 76, 60, 0.2)",
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "#E74C3C",
   },
-  silenceText: {
-    fontSize: 11,
-    color: colors.textDim,
-    fontWeight: "700",
+  alarmBadgeText: {
+    fontSize: 10,
+    color: "#E74C3C",
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
   bodyWrap: {
     backgroundColor: colors.surface,

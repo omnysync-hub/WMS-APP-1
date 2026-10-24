@@ -85,6 +85,7 @@
         {
           "color": "#0D7A5F",
           "sounds": [
+            "./assets/sounds/ringtone.mp3",
             "./assets/sounds/job_ring.wav",
             "./assets/sounds/alert_chime.wav"
           ],

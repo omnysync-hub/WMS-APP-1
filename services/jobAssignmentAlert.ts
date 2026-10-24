@@ -7,12 +7,12 @@ import {
 } from "@/store/incomingJobStore";
 import { startNativeAlarm, stopNativeAlarm } from "@/services/nativeAlarm";
 
-/** Android channel identifier for assigned job ringtones (v4: native alarm service + bypassDnd) */
-export const JOB_RING_CHANNEL = "job-ring-v4";
+/** Android channel identifier for assigned job ringtones (v5: custom ringtone.mp3 + native alarm service + bypassDnd) */
+export const JOB_RING_CHANNEL = "job-ring-v5";
 export const URGENT_CHANNEL = "urgent-dispatch-v3";
 export const GENERAL_CHANNEL = "general-dispatch";
 
-export const JOB_RING_SOUND = "job_ring.wav";
+export const JOB_RING_SOUND = "ringtone.mp3";
 export const ALERT_SOUND = "alert_chime.wav";
 export const RING_NOTIFICATION_ID = "job-incoming-assignment-ring";
 
@@ -138,7 +138,7 @@ async function playJobRingAudio() {
   await configureAudioForCriticalAlerts();
   try {
     if (!activeAudioPlayer) {
-      activeAudioPlayer = createAudioPlayer(require("@/assets/sounds/job_ring.wav"), {
+      activeAudioPlayer = createAudioPlayer(require("@/assets/sounds/ringtone.mp3"), {
         keepAudioSessionActive: true,
       });
       activeAudioPlayer.loop = true;

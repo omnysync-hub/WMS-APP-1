@@ -285,7 +285,12 @@ export function startJobDispatchWatcher(
           const chunks = buffer.split("\n\n");
           buffer = chunks.pop() ?? "";
           for (const chunk of chunks) {
-            if (chunk.includes("NEW_APP_REQUEST") || chunk.includes("REQUEST_RESPONDED")) {
+            if (
+              chunk.includes("JOB_ASSIGNED") ||
+              chunk.includes("JOB_UPDATED") ||
+              chunk.includes("NEW_APP_REQUEST") ||
+              chunk.includes("REQUEST_RESPONDED")
+            ) {
               await tick();
             }
           }
