@@ -83,25 +83,7 @@ function LineCard({
             </Pressable>
           ) : null}
 
-          {onRemove && line.isService ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${line.title}`}
-              onPress={() => {
-                void haptic.tap();
-                onRemove(item.id);
-              }}
-              style={{
-                padding: 6,
-                borderRadius: radius.sm,
-                backgroundColor: colors.surface,
-                borderWidth: 1,
-                borderColor: colors.border,
-              }}
-            >
-              <X size={14} color={colors.danger} />
-            </Pressable>
-          ) : null}
+
         </View>
       </View>
 

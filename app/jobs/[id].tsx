@@ -278,9 +278,7 @@ export default function JobDetailScreen() {
                 )
               )
             }
-            onRemove={(itemId) =>
-              setItems((prev) => prev.filter((it) => it.id !== itemId))
-            }
+
           />
 
           {job.status === "InProgress" && (

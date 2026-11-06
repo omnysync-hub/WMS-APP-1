@@ -473,21 +473,7 @@ export default function CompleteModal() {
                     <Text style={{ color: colors.text, fontWeight: "700", flex: 1, fontSize: 14 }}>
                       {line.title}
                     </Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove service ${line.title}`}
-                      onPress={() => {
-                        void haptic.tap();
-                        setItems((prev) => prev.filter((row) => row.id !== it.id));
-                      }}
-                      style={{
-                        padding: 6,
-                        borderRadius: 6,
-                        backgroundColor: colors.surfaceElevated,
-                      }}
-                    >
-                      <X size={14} color={colors.danger} />
-                    </Pressable>
+
                   </View>
 
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
