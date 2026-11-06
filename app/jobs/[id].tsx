@@ -13,6 +13,7 @@ import * as Location from "expo-location";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
+  Check,
   Package,
   Percent,
   Wrench,
@@ -27,7 +28,7 @@ import { JobActionToolbar } from "@/components/job/JobActionToolbar";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Card";
-import { fetchJob, transitionJob } from "@/services/jobsService";
+import { fetchJob, transitionJob, saveJobInventoryUsage } from "@/services/jobsService";
 import { stopContinuousJobRing, markJobAsAccepted } from "@/services/jobAssignmentAlert";
 import { useAuthStore } from "@/store/authStore";
 import { colors } from "@/constants/theme";
@@ -97,6 +98,36 @@ export default function JobDetailScreen() {
       actor: employee?.name ?? "Technician",
     });
   }
+
+  const [savingInventory, setSavingInventory] = useState(false);
+
+  const handleSaveInventory = async () => {
+    if (!id) return;
+    setSavingInventory(true);
+    void haptic.tap();
+    try {
+      const inventoryPayload = items
+        .filter((it) => it.id)
+        .map((it) => ({
+          id: it.id,
+          actualQty: Number(it.quantityActual ?? 0),
+        }));
+      await saveJobInventoryUsage(
+        id,
+        inventoryPayload,
+        employee?.name ?? "Technician"
+      );
+      void haptic.success();
+      toast("Inventory usage saved", "success");
+      await qc.invalidateQueries({ queryKey: ["job", id] });
+      await qc.invalidateQueries({ queryKey: ["jobs"] });
+    } catch (e: any) {
+      void haptic.error();
+      Alert.alert("Save Failed", e?.message || "Could not save inventory usage.");
+    } finally {
+      setSavingInventory(false);
+    }
+  };
 
   const job = query.data;
 
@@ -292,7 +323,7 @@ export default function JobDetailScreen() {
                   letterSpacing: 0.8,
                 }}
               >
-                PARTS & MATERIALS (INVENTORY)
+                PARTS & MATERIALS
               </Text>
             </View>
             <Text style={{ color: colors.textDim, fontSize: 12, lineHeight: 18 }}>
@@ -302,7 +333,7 @@ export default function JobDetailScreen() {
 
           <InventoryList
             items={items}
-            editable={job.status === "InProgress"}
+            editable={job.status === "InProgress" || job.status === "Accepted"}
             onChangeActual={(itemId, qty) =>
               setItems((prev) =>
                 prev.map((it) => (it.id === itemId ? { ...it, quantityActual: qty } : it))
@@ -319,23 +350,39 @@ export default function JobDetailScreen() {
             }
           />
 
-          <View style={{ marginTop: 8 }}>
-            <Button
-              title="Request inventory"
-              size="md"
-              icon={<Package size={18} color="#fff" />}
-              onPress={() =>
-                router.push({
-                  pathname: "/jobs/inventory-request",
-                  params: { jobId: id, jobNumber: job.jobNumber },
-                })
-              }
-              style={{
-                backgroundColor: colors.surfaceElevated,
-                borderWidth: 1.5,
-                borderColor: colors.border,
-              }}
-            />
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+            {(job.status === "InProgress" || job.status === "Accepted") && (
+              <View style={{ flex: 1 }}>
+                <Button
+                  title="Save Inventory"
+                  size="md"
+                  loading={savingInventory}
+                  icon={<Check size={18} color="#fff" />}
+                  onPress={handleSaveInventory}
+                  style={{
+                    backgroundColor: colors.success,
+                  }}
+                />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Button
+                title="Request inventory"
+                size="md"
+                icon={<Package size={18} color="#fff" />}
+                onPress={() =>
+                  router.push({
+                    pathname: "/jobs/inventory-request",
+                    params: { jobId: id, jobNumber: job.jobNumber },
+                  })
+                }
+                style={{
+                  backgroundColor: colors.surfaceElevated,
+                  borderWidth: 1.5,
+                  borderColor: colors.border,
+                }}
+              />
+            </View>
           </View>
         </Card>
 

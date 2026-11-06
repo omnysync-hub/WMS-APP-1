@@ -37,28 +37,26 @@ export async function ensureAndroidChannels() {
   await ensureJobAssignmentChannel();
   await ensureUrgentChannel();
   await ensureGeneralChannel();
-  // Legacy ids kept so old queued pushes still deliver something audible
-  await Notifications.setNotificationChannelAsync("urgent-dispatch", {
-    name: "Urgent job alerts (legacy)",
-    importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 500, 200, 500],
-    enableVibrate: true,
-    bypassDnd: true,
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-  });
-  await Notifications.setNotificationChannelAsync("default", {
-    name: "Workman Alerts",
-    importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 250, 150, 250],
-    enableVibrate: true,
-  });
-  await Notifications.setNotificationChannelAsync("job-assignment", {
-    name: "New job assigned (legacy)",
-    importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 900, 400, 900, 400, 900],
-    enableVibrate: true,
-    bypassDnd: true,
-  });
+  // Backward compatibility fallback channels so 100% of alerts deliver audibly
+  const fallbackChannels = [
+    { id: "job-ring-v4", name: "Job alerts v4", sound: JOB_RING_SOUND },
+    { id: "job-ring-v3", name: "Job alerts v3", sound: JOB_RING_SOUND },
+    { id: "urgent-dispatch-v2", name: "Urgent dispatch v2", sound: "alert_chime.wav" },
+    { id: "urgent-dispatch", name: "Urgent job alerts (legacy)", sound: undefined },
+    { id: "default", name: "Workman Alerts", sound: undefined },
+    { id: "job-assignment", name: "New job assigned (legacy)", sound: undefined },
+  ];
+  for (const ch of fallbackChannels) {
+    await Notifications.setNotificationChannelAsync(ch.id, {
+      name: ch.name,
+      importance: Notifications.AndroidImportance.MAX,
+      sound: ch.sound,
+      vibrationPattern: [0, 800, 300, 800],
+      enableVibrate: true,
+      bypassDnd: true,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    }).catch(() => {});
+  }
 }
 
 export async function registerForPushNotifications(employeeId: string) {
@@ -188,7 +186,7 @@ export function attachPushListeners() {
     const rawBody = n.request.content.body ?? "";
     const { title } = friendlyDispatchCopy(rawTitle, rawBody);
     void haptic.warn();
-    toast(title, "info");
+    // Redundant in-app toast removed - push notifications go to notification center
 
     // If a job assignment notification is received, start continuous looping ringtone until accepted
     if (

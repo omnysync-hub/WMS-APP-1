@@ -68,7 +68,7 @@ export default function PauseModal() {
       />
 
       <Text style={{ color: colors.textDim, marginTop: 14, fontSize: 12, lineHeight: 18 }}>
-        Optional tips (not required to resume later): stock usually stays with you on site.
+        Optional tips · not required to resume later: stock usually stays with you on site.
         Returning parts to the storekeeper is rare. You may visit the accountant for partial
         hisaab if useful — Resume will still work without it.
       </Text>

@@ -147,6 +147,19 @@ export async function addJobServices(
   });
 }
 
+/** ERP PATCH action: save_inventory_usage — persists used stock quantities directly from technician screen. */
+export async function saveJobInventoryUsage(
+  jobId: string,
+  items: Array<{ id: string; actualQty: number }>,
+  actor: string
+) {
+  return transitionJob(jobId, {
+    action: "save_inventory_usage",
+    items,
+    actor,
+  });
+}
+
 export async function batchAcceptJobs(jobIds: string[], technicianId: string) {
   return api.batchAcceptJobs({ jobIds, technicianId });
 }

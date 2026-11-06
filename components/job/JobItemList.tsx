@@ -311,7 +311,7 @@ function LineCard({
               <Text style={{ color: colors.text, fontWeight: "700", fontSize: 13 }}>Used Quantity</Text>
               <Text style={{ color: colors.textDim, fontSize: 11, marginTop: 1 }}>
                 {currentActual === 0
-                  ? "None used yet (not billed)"
+                  ? "None used yet · not billed"
                   : isLeftover
                     ? `${currentActual} used · ${line.qtyPlanned - currentActual} leftover to return`
                     : `All ${currentActual} used`}
@@ -422,7 +422,7 @@ function LineCard({
                     fontWeight: "700",
                   }}
                 >
-                  None (0)
+                  None · 0
                 </Text>
               </Pressable>
 
@@ -449,7 +449,7 @@ function LineCard({
                     fontWeight: "700",
                   }}
                 >
-                  All ({line.qtyPlanned})
+                  All · {line.qtyPlanned}
                 </Text>
               </Pressable>
             </View>

@@ -88,8 +88,12 @@ export function parseJobLine(item: JobItem): ParsedJobLine {
       .replace(/\s*\[Issued by Storekeeper\]/gi, "")
       .replace(/\s*\[Service Added by[^\]]+\]/gi, "")
       .replace(/^\[(?:Service|Equipment)\]\s*/i, "")
+      .replace(/[\[\]\(\)]/g, " ")
+      .replace(/\s*-\s*-\s*/g, " - ")
+      .replace(/\s{2,}/g, " ")
       .trim()
   );
+  title = title.replace(/^[\s\-·]+|[\s\-·]+$/g, "").trim();
 
   let isService = false;
   let isEquipment = false;
@@ -337,6 +341,7 @@ function cleanText(s: string) {
       .replace(/â€¢/g, "·")
       .replace(/â€“|â€”/g, "—")
       .replace(/[•●]/g, "·")
+      .replace(/[\[\]\(\)]/g, " ")
       .replace(/\s{2,}/g, " ")
       .trim()
   );
