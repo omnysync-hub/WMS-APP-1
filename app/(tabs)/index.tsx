@@ -21,6 +21,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchRequests } from "@/services/requestsService";
 import { useAuthStore } from "@/store/authStore";
 import { colors, radius, space, tapMin, type } from "@/constants/theme";
+import { toast } from "@/store/toastStore";
 import { haptic } from "@/lib/haptics";
 import { stopContinuousJobRing, markJobAsAccepted } from "@/services/jobAssignmentAlert";
 import type { Job } from "@/types";
@@ -88,18 +89,30 @@ export default function JobsScreen() {
   const acceptOneMutation = useMutation({
     mutationFn: async (jobId: string) => {
       setAcceptingId(jobId);
-      await markJobAsAccepted(jobId, undefined, employee?.id);
-      await transitionJob(jobId, {
-        action: "accept",
-        actor: employee!.name ?? "Technician",
-        technicianId: employee!.id,
-      });
-      await stopContinuousJobRing();
+      try {
+        await markJobAsAccepted(jobId, undefined, employee?.id);
+        await transitionJob(jobId, {
+          action: "accept",
+          actor: employee?.name ?? "Technician",
+          technicianId: employee?.id,
+        });
+        await stopContinuousJobRing();
+      } catch (err) {
+        console.warn("[acceptOneMutation] error:", err);
+        throw err;
+      }
     },
     onSettled: () => setAcceptingId(null),
     onSuccess: async () => {
+      void haptic.success();
+      toast("Job accepted!", "success");
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
       await queryClient.invalidateQueries({ queryKey: ["requests"] });
+    },
+    onError: (err: any) => {
+      void haptic.error();
+      const msg = err instanceof Error ? err.message : "Could not accept job";
+      toast(msg, "error");
     },
   });
 
@@ -108,14 +121,23 @@ export default function JobsScreen() {
       for (const id of selectedIds) {
         await markJobAsAccepted(id, undefined, employee?.id);
       }
-      await batchAcceptJobs(selectedIds, employee!.id);
+      if (employee?.id) {
+        await batchAcceptJobs(selectedIds, employee.id);
+      }
       await stopContinuousJobRing();
     },
     onSuccess: async () => {
       setSelectedIds([]);
       setSelectMode(false);
+      void haptic.success();
+      toast("Jobs accepted!", "success");
       await queryClient.invalidateQueries({ queryKey: ["jobs"] });
       await queryClient.invalidateQueries({ queryKey: ["requests"] });
+    },
+    onError: (err: any) => {
+      void haptic.error();
+      const msg = err instanceof Error ? err.message : "Could not accept jobs";
+      toast(msg, "error");
     },
   });
 

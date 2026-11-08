@@ -56,52 +56,58 @@ export async function markJobAsAccepted(
   requestId?: string | null,
   employeeId?: string | null
 ) {
-  if (jobId) acceptedJobIds.add(String(jobId));
-  if (requestId) acceptedRequestIds.add(String(requestId));
+  try {
+    if (jobId) acceptedJobIds.add(String(jobId));
+    if (requestId) acceptedRequestIds.add(String(requestId));
 
-  // 1. Immediately silence and stop ringing
-  await stopContinuousJobRing();
+    // 1. Immediately silence and stop ringing
+    await stopContinuousJobRing().catch((err) => {
+      console.warn("[markJobAsAccepted] stopContinuousJobRing error:", err);
+    });
 
-  // 2. Immediately update local SQLite cache so subsequent local reads show status = 'Accepted'
-  if (jobId) {
-    try {
-      const { getDatabase } = await import("@/db/database");
-      const db = await getDatabase();
-      await db.runAsync(
-        "UPDATE local_jobs SET status = 'Accepted', updatedAt = ? WHERE id = ?",
-        [Date.now(), String(jobId)]
-      );
-    } catch {
-      /* ignore offline DB errors */
-    }
-  }
-
-  // 3. Auto-respond to any pending dispatch requests tied to this jobId so ERP doesn't keep it pending
-  if (employeeId && jobId) {
-    try {
-      const { fetchRequests, respondToRequest } = await import("@/services/requestsService");
-      const res = await fetchRequests(employeeId);
-      const pendingReqs = (res.requests || []).filter((r) => {
-        if (r.actionStatus !== "pending") return false;
-        try {
-          if (!r.payloadJson) return false;
-          const p = JSON.parse(r.payloadJson) as { jobId?: string };
-          return String(p.jobId) === String(jobId);
-        } catch {
-          return false;
-        }
-      });
-      for (const req of pendingReqs) {
-        acceptedRequestIds.add(req.id);
-        void respondToRequest(req.id, {
-          employeeId,
-          actionStatus: "accepted",
-          notes: "Auto-accepted with job",
-        }).catch(() => {});
+    // 2. Immediately update local SQLite cache so subsequent local reads show status = 'Accepted'
+    if (jobId) {
+      try {
+        const { getDatabase } = await import("@/db/database");
+        const db = await getDatabase();
+        await db.runAsync(
+          "UPDATE local_jobs SET status = 'Accepted', updatedAt = ? WHERE id = ?",
+          [Date.now(), String(jobId)]
+        );
+      } catch (dbErr) {
+        console.warn("[markJobAsAccepted] db error:", dbErr);
       }
-    } catch {
-      /* ignore background request sync error */
     }
+
+    // 3. Auto-respond to any pending dispatch requests tied to this jobId so ERP doesn't keep it pending
+    if (employeeId && jobId) {
+      try {
+        const { fetchRequests, respondToRequest } = await import("@/services/requestsService");
+        const res = await fetchRequests(employeeId);
+        const pendingReqs = (res.requests || []).filter((r) => {
+          if (r.actionStatus !== "pending") return false;
+          try {
+            if (!r.payloadJson) return false;
+            const p = JSON.parse(r.payloadJson) as { jobId?: string };
+            return String(p.jobId) === String(jobId);
+          } catch {
+            return false;
+          }
+        });
+        for (const req of pendingReqs) {
+          acceptedRequestIds.add(req.id);
+          void respondToRequest(req.id, {
+            employeeId,
+            actionStatus: "accepted",
+            notes: "Auto-accepted with job",
+          }).catch(() => {});
+        }
+      } catch (reqErr) {
+        console.warn("[markJobAsAccepted] req error:", reqErr);
+      }
+    }
+  } catch (err) {
+    console.warn("[markJobAsAccepted] global error:", err);
   }
 }
 
@@ -158,16 +164,25 @@ async function playJobRingAudio() {
 
 function stopJobRingAudio() {
   // Stop native Android alarm service first (ALARM stream)
-  stopNativeAlarm();
+  try {
+    stopNativeAlarm();
+  } catch (err) {
+    console.warn("[jobRing] stopNativeAlarm error:", err);
+  }
 
   if (activeAudioPlayer) {
-    try {
-      activeAudioPlayer.pause();
-      activeAudioPlayer.remove();
-    } catch (err) {
-      console.warn("[jobRing] expo-audio stop error:", err);
-    }
+    const player = activeAudioPlayer;
     activeAudioPlayer = null;
+    try {
+      player.pause();
+    } catch (err) {
+      console.warn("[jobRing] expo-audio pause error:", err);
+    }
+    try {
+      player.remove();
+    } catch (err) {
+      console.warn("[jobRing] expo-audio remove error:", err);
+    }
   }
 }
 
@@ -317,36 +332,44 @@ export async function startContinuousJobRing(details: IncomingJobAlert) {
  * Clears and cancels all active notifications.
  */
 export async function stopContinuousJobRing() {
-  if (ringInterval) {
-    clearInterval(ringInterval);
-    ringInterval = null;
+  try {
+    if (ringInterval) {
+      clearInterval(ringInterval);
+      ringInterval = null;
+    }
+    currentRingingJob = null;
+    try {
+      useIncomingJobStore.getState().setRinging(false, null);
+    } catch {}
+
+    // 1. Stop native audio playback immediately
+    try {
+      stopJobRingAudio();
+    } catch {}
+
+    // 2. Stop vibration immediately
+    try {
+      Vibration.cancel();
+    } catch {
+      /* ignore vibration cancel errors */
+    }
+
+    // 3. Cancel scheduled notifications and dismiss active alerts immediately
+    try {
+      await Notifications.cancelScheduledNotificationAsync(RING_NOTIFICATION_ID);
+    } catch {}
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+    } catch {}
+    try {
+      await Notifications.dismissNotificationAsync(RING_NOTIFICATION_ID);
+    } catch {}
+    try {
+      await Notifications.dismissAllNotificationsAsync();
+    } catch {}
+  } catch (err) {
+    console.warn("[stopContinuousJobRing] error:", err);
   }
-  currentRingingJob = null;
-  useIncomingJobStore.getState().setRinging(false, null);
-
-  // 1. Stop native audio playback immediately
-  stopJobRingAudio();
-
-  // 2. Stop vibration immediately
-  try {
-    Vibration.cancel();
-  } catch {
-    /* ignore vibration cancel errors */
-  }
-
-  // 3. Cancel scheduled notifications and dismiss active alerts immediately
-  try {
-    await Notifications.cancelScheduledNotificationAsync(RING_NOTIFICATION_ID);
-  } catch {}
-  try {
-    await Notifications.cancelAllScheduledNotificationsAsync();
-  } catch {}
-  try {
-    await Notifications.dismissNotificationAsync(RING_NOTIFICATION_ID);
-  } catch {}
-  try {
-    await Notifications.dismissAllNotificationsAsync();
-  } catch {}
 }
 
 /** Convenience single-shot or initial ring invocation */

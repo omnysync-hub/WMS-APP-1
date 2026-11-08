@@ -52,7 +52,7 @@ export default function JobDetailScreen() {
   useEffect(() => {
     if (query.data?.items) setItems(query.data.items);
     if (query.data?.status && query.data.status !== "Assigned") {
-      void markJobAsAccepted(id);
+      void markJobAsAccepted(id).catch(() => {});
     }
   }, [query.data, id]);
 
@@ -60,7 +60,7 @@ export default function JobDetailScreen() {
     mutationFn: async (payload: Record<string, unknown>) => {
       const action = String(payload.action ?? "");
       if (action === "accept") {
-        await markJobAsAccepted(id, undefined, employee?.id);
+        await markJobAsAccepted(id, undefined, employee?.id).catch(() => {});
       }
       return transitionJob(id!, payload);
     },
@@ -70,7 +70,7 @@ export default function JobDetailScreen() {
       qc.invalidateQueries({ queryKey: ["requests"] });
       const action = String(vars.action ?? "");
       if (action === "accept") {
-        await markJobAsAccepted(id, undefined, employee?.id);
+        await markJobAsAccepted(id, undefined, employee?.id).catch(() => {});
         toast("Job accepted", "success");
       }
       else if (action === "start") toast("Started on site", "success");

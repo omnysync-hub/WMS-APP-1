@@ -39,10 +39,10 @@ export function IncomingJobRingBanner() {
     const jobId = incoming?.jobId;
     const requestId = incoming?.requestId;
 
-    // Immediately stop ringtone, native audio & vibration, and record acceptance
-    await markJobAsAccepted(jobId, requestId, employee?.id);
-
     try {
+      // 1. Immediately stop ringtone, native audio & vibration, and record acceptance
+      await markJobAsAccepted(jobId, requestId, employee?.id);
+
       if (jobId && employee?.id) {
         await transitionJob(jobId, {
           action: "accept",
@@ -67,7 +67,11 @@ export function IncomingJobRingBanner() {
       await qc.invalidateQueries({ queryKey: ["requests"] });
 
       if (jobId) {
-        router.push(`/jobs/${jobId}`);
+        try {
+          router.push(`/jobs/${jobId}`);
+        } catch (routeErr) {
+          console.warn("[IncomingJobRingBanner] navigation error:", routeErr);
+        }
       }
     } catch (err: unknown) {
       void haptic.error();
