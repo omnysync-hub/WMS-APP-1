@@ -4,7 +4,9 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     },
     "ignoreDeprecations": "6.0"
   },
@@ -12,6 +14,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "nativewind-env.d.ts"
+    "nativewind-env.d.ts",
+    "expo-env.d.ts"
   ]
 }

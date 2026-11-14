@@ -6,8 +6,8 @@ export const DEFAULT_ERP_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ||
   (__DEV__
     ? Platform.OS === "android"
-      ? "http://10.0.2.2:3000"
-      : "http://localhost:3000"
+      ? "http://10.0.2.2:3001"
+      : "http://localhost:3001"
     : "https://softwareworkmanservices.com.pk");
 
 export let ERP_BASE_URL = DEFAULT_ERP_BASE_URL;
