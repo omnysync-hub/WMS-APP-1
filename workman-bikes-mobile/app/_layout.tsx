@@ -1,7 +1,20 @@
 import React from "react";
+import { Platform } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "../global.css";
+
+// Safeguard for NativeWind on web
+if (Platform.OS === "web") {
+  try {
+    const { StyleSheet } = require("react-native-css-interop");
+    if (StyleSheet && typeof StyleSheet.setFlag === "function") {
+      StyleSheet.setFlag("darkMode", "class dark");
+    }
+  } catch (e) {
+    // ignore
+  }
+}
 
 export default function RootLayout() {
   return (
