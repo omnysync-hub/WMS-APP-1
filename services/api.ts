@@ -182,7 +182,7 @@ export const api = {
     password: string;
     deviceId: string;
     deviceName: string;
-  }) => apiClient.post("/api/mobile/auth", credentials),
+  }) => apiClient.post("/api/mobile/auth", { ...credentials, appId: "main" }),
 
   logoutMobileSession: () => apiClient.delete("/api/mobile/auth"),
 

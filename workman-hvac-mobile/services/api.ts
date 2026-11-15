@@ -132,6 +132,7 @@ export const AuthApi = {
     const looksLikeEmail = id.includes("@");
     const looksLikePhone = /^[+\d][\d\s-]{6,}$/.test(id);
     const credentials: Record<string, string> = {
+      appId: "hvac",
       password: pwd,
       deviceId: device.deviceId,
       deviceName: device.deviceName,

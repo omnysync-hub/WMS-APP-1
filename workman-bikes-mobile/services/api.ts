@@ -116,7 +116,7 @@ export const AuthApi = {
   async login(identifier: string, password: string) {
     const id = identifier.trim();
     const device = await getDeviceIdentity();
-    const creds: Record<string, string> = { password, ...device };
+    const creds: Record<string, string> = { password, ...device, appId: "bikes" };
     if (id.includes("@")) creds.email = id;
     else if (/^[+\d][\d\s-]{6,}$/.test(id)) creds.phone = id;
     else creds.username = id;
