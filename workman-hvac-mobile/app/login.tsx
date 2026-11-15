@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,27 @@ import {
 } from "react-native";
 import { Snowflake, Lock, User } from "lucide-react-native";
 import { useAuthStore } from "@/store/authStore";
+import { ERP_BASE_URL, getStoredApiUrl, setStoredApiUrl } from "@/services/api";
 
 export default function HvacLoginScreen() {
   const login = useAuthStore((s) => s.login);
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [serverUrl, setServerUrl] = useState(ERP_BASE_URL);
+  const [showServerInput, setShowServerInput] = useState(false);
+
+  useEffect(() => {
+    getStoredApiUrl().then(setServerUrl).catch(() => {});
+  }, []);
+
+  const handleSaveServerUrl = async (val: string) => {
+    const trimmed = val.trim();
+    setServerUrl(trimmed);
+    if (trimmed) {
+      await setStoredApiUrl(trimmed);
+    }
+  };
 
   const handleLogin = async () => {
     if (!identifier.trim()) {
@@ -97,6 +112,37 @@ export default function HvacLoginScreen() {
             <Text className="text-black font-bold text-sm">Sign In</Text>
           )}
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setShowServerInput(!showServerInput)}
+          className="mt-4 py-1"
+        >
+          <Text className="text-zinc-500 text-[11px] text-center">
+            Server: <Text className="text-cyan-400 font-mono underline">{serverUrl}</Text> (Tap to change)
+          </Text>
+        </TouchableOpacity>
+
+        {showServerInput && (
+          <View className="bg-[#121215] border border-[#27272A] p-3 rounded-xl mt-2">
+            <Text className="text-zinc-400 text-xs mb-1">Custom Server URL</Text>
+            <View className="flex-row items-center gap-2">
+              <TextInput
+                value={serverUrl}
+                onChangeText={handleSaveServerUrl}
+                placeholder="https://... or http://192.168.18.36:3001"
+                placeholderTextColor="#71717A"
+                className="flex-1 bg-[#18181B] border border-[#27272A] rounded-lg px-2.5 py-2 text-white text-xs font-mono"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                onPress={() => setShowServerInput(false)}
+                className="bg-zinc-800 px-3 py-2 rounded-lg"
+              >
+                <Text className="text-zinc-200 text-xs font-bold">Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
 
       <Text className="text-zinc-600 text-[10px] text-center mt-6">
