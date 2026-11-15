@@ -1,7 +1,8 @@
-import React from "react";
-import { Platform } from "react-native";
-import { Stack } from "expo-router";
+import React, { useEffect } from "react";
+import { Platform, View, ActivityIndicator } from "react-native";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useAuthStore } from "@/store/authStore";
 import "../global.css";
 
 // Safeguard for NativeWind on web
@@ -17,6 +18,34 @@ if (Platform.OS === "web") {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
+  const segments = useSegments();
+  const hydrate = useAuthStore((s) => s.hydrate);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    const onLoginScreen = segments[0] === "login";
+    if (!isAuthenticated && !onLoginScreen) {
+      router.replace("/login");
+    } else if (isAuthenticated && onLoginScreen) {
+      router.replace("/(tabs)");
+    }
+  }, [isAuthenticated, isHydrated, segments, router]);
+
+  if (!isHydrated) {
+    return (
+      <View className="flex-1 bg-[#09090B] items-center justify-center">
+        <ActivityIndicator color="#F59E0B" size="large" />
+      </View>
+    );
+  }
+
   return (
     <>
       <StatusBar style="light" />
@@ -28,6 +57,7 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: "#09090B" },
         }}
       >
+        <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="jobs/[id]"

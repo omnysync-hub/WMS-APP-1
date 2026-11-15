@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,19 +10,60 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Bike } from "lucide-react-native";
-import { WorkshopBikesApi } from "@/services/api";
+import { WorkshopBikesApi, apiErrorMessage } from "@/services/api";
+import { useAuthStore } from "@/store/authStore";
+import { SearchPicker, type PickerItem } from "@/components/SearchPicker";
 
+/**
+ * SOP Step 1 - Unit Received & Job Card Created (Workshop Supervisor).
+ * Bike fields per SOP: Reg No, Chassis / Engine No, Km, complaint.
+ * The customer can be picked from the ERP customer list (avoids duplicate
+ * walk-in records) and a mechanic can be assigned right at intake.
+ */
 export default function NewBikeIntakeScreen() {
   const router = useRouter();
+  const employee = useAuthStore((s) => s.employee);
   const [loading, setLoading] = useState(false);
   const [regNo, setRegNo] = useState("");
-  const [makeModel, setMakeModel] = useState("Honda CD 70");
+  const [makeModel, setMakeModel] = useState("");
   const [chassis, setChassis] = useState("");
   const [engine, setEngine] = useState("");
   const [km, setKm] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [complaint, setComplaint] = useState("");
+
+  const [customers, setCustomers] = useState<PickerItem[]>([]);
+  const [staff, setStaff] = useState<PickerItem[]>([]);
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [staffName, setStaffName] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await WorkshopBikesApi.getOptions();
+        if (res.success) {
+          setCustomers(
+            (res.data.customers || []).map((c: any) => ({
+              id: c.id,
+              label: c.name,
+              sub: c.phone || undefined,
+            }))
+          );
+          setStaff(
+            (res.data.staff || []).map((s: any) => ({
+              id: s.id,
+              label: s.name,
+              sub: s.designation || s.role || undefined,
+            }))
+          );
+        }
+      } catch (e) {
+        // Pickers are optional aids; free-text intake still works offline-ish.
+      }
+    })();
+  }, []);
 
   const handleSubmit = async () => {
     if (!regNo.trim() || !complaint.trim()) {
@@ -33,25 +74,34 @@ export default function NewBikeIntakeScreen() {
     setLoading(true);
     try {
       const res = await WorkshopBikesApi.createJob({
-        bikeRegNo: regNo.toUpperCase(),
-        bikeMakeModel: makeModel,
-        chassisNumber: chassis ? chassis.toUpperCase() : undefined,
-        engineNumber: engine ? engine.toUpperCase() : undefined,
+        bikeRegNo: regNo.trim().toUpperCase(),
+        bikeMakeModel: makeModel.trim() || undefined,
+        chassisNumber: chassis.trim() ? chassis.trim().toUpperCase() : undefined,
+        engineNumber: engine.trim() ? engine.trim().toUpperCase() : undefined,
         currentKm: km ? Number(km) : undefined,
+        customerId: customerId || undefined,
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
         complaint: complaint.trim(),
+        supervisorName: employee?.name,
+        supervisorId: employee?.id,
+        assignedStaffId: staffId || undefined,
+        assignedStaffName: staffName || undefined,
       });
 
       if (res.success) {
         Alert.alert("Job Card Created", `Job Card #${res.data.jobNumber} opened successfully!`, [
-          { text: "Open Card", onPress: () => router.replace(`/jobs/${res.data.id}`) },
+          {
+            text: "Open Card",
+            onPress: () =>
+              router.replace({ pathname: "/jobs/[id]", params: { id: res.data.id } }),
+          },
         ]);
       } else {
         Alert.alert("Error", res.error || "Failed to create job card");
       }
     } catch (e: any) {
-      Alert.alert("Error", e.message || "Network error");
+      Alert.alert("Error", apiErrorMessage(e, "Failed to create job card"));
     } finally {
       setLoading(false);
     }
@@ -127,6 +177,21 @@ export default function NewBikeIntakeScreen() {
           />
         </View>
 
+        <View>
+          <Text className="text-zinc-400 text-xs mb-1">Customer (pick from ERP, or type below)</Text>
+          <SearchPicker
+            placeholder="Select existing customer..."
+            items={customers}
+            selectedId={customerId}
+            emptyText="No customer found - type the name below instead"
+            onSelect={(item) => {
+              setCustomerId(item.id);
+              setCustomerName(item.label);
+              if (item.sub) setCustomerPhone(item.sub);
+            }}
+          />
+        </View>
+
         <View className="flex-row gap-2">
           <View className="flex-1">
             <Text className="text-zinc-400 text-xs mb-1">Customer Name</Text>
@@ -134,7 +199,10 @@ export default function NewBikeIntakeScreen() {
               placeholder="Client Name"
               placeholderTextColor="#71717A"
               value={customerName}
-              onChangeText={setCustomerName}
+              onChangeText={(t) => {
+                setCustomerName(t);
+                setCustomerId(null);
+              }}
               className="bg-[#121215] border border-[#27272A] text-white text-xs px-3 py-2 rounded-xl"
             />
           </View>
@@ -161,6 +229,20 @@ export default function NewBikeIntakeScreen() {
             multiline
             numberOfLines={3}
             className="bg-[#121215] border border-[#27272A] text-white text-xs p-3 rounded-xl"
+          />
+        </View>
+
+        <View>
+          <Text className="text-zinc-400 text-xs mb-1">Assign Mechanic Now (Step 2, optional)</Text>
+          <SearchPicker
+            placeholder="Leave unassigned..."
+            items={staff}
+            selectedId={staffId}
+            emptyText="No active staff found"
+            onSelect={(item) => {
+              setStaffId(item.id);
+              setStaffName(item.label);
+            }}
           />
         </View>
 

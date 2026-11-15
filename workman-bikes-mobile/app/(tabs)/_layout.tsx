@@ -1,6 +1,6 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Bike, Wrench, RotateCcw, User } from "lucide-react-native";
+import { Bike, Wrench, RotateCcw, User, BarChart3 } from "lucide-react-native";
 
 export default function TabsLayout() {
   return (
@@ -23,7 +23,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "My Jobs",
+          title: "Bike Job Cards",
           tabBarLabel: "Jobs",
           tabBarIcon: ({ color, size }) => <Bike color={color} size={size} />,
         }}
@@ -45,9 +45,17 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="reports"
+        options={{
+          title: "Workshop Reports",
+          tabBarLabel: "Reports",
+          tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
-          title: "Mechanic Profile",
+          title: "My Profile",
           tabBarLabel: "Profile",
           tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
         }}

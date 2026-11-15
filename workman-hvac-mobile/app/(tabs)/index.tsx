@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -8,37 +8,62 @@ import {
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { Snowflake, Plus, Search, Gauge } from "lucide-react-native";
+import { useRouter, useFocusEffect } from "expo-router";
+import { Snowflake, Plus, Search } from "lucide-react-native";
 import { WorkshopHvacApi } from "@/services/api";
 import { useAuthStore } from "@/store/authStore";
+import { StatusChip } from "@/components/jobUi";
+
+const STATUS_FILTERS = ["ALL", "Open", "Assigned", "Pending Approval", "Approved", "In Progress", "Completed", "Closed"] as const;
 
 export default function HvacJobsScreen() {
   const router = useRouter();
-  const { techName, benchRig } = useAuthStore();
+  const employee = useAuthStore((s) => s.employee);
+  const benchRig = useAuthStore((s) => s.benchRig);
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [unitFilter, setUnitFilter] = useState("ALL");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadJobs = async () => {
-    try {
-      const res = await WorkshopHvacApi.getJobs({ search: search.trim() || undefined });
-      if (res.success) {
-        setJobs(res.data || []);
+  const loadJobs = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      try {
+        setError(null);
+        const res = await WorkshopHvacApi.getJobs({
+          search: search.trim() || undefined,
+          status: statusFilter !== "ALL" ? statusFilter : undefined,
+        });
+        if (res.success) {
+          setJobs(res.data || []);
+        } else {
+          setError(res.error || "Failed to load job cards");
+        }
+      } catch (e: any) {
+        setError(e?.message || "Failed to load job cards");
+      } finally {
+        if (!opts?.silent) setLoading(false);
+        setRefreshing(false);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+    },
+    [search, statusFilter]
+  );
 
-  useEffect(() => {
-    loadJobs();
-  }, [search]);
+  // Reload whenever the tab regains focus (e.g. after creating/closing a job).
+  useFocusEffect(
+    useCallback(() => {
+      loadJobs();
+    }, [loadJobs])
+  );
+
+  const onSearchChange = (text: string) => {
+    setSearch(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => loadJobs(), 400);
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -57,11 +82,19 @@ export default function HvacJobsScreen() {
       {/* Top Banner */}
       <View className="bg-[#121215] px-4 py-3 border-b border-[#27272A]">
         <View className="flex-row items-center justify-between">
-          <View>
+          <View className="flex-1 pr-2">
             <Text className="text-cyan-400 text-xs font-bold uppercase tracking-wider">
               Bench Testing • {benchRig}
             </Text>
-            <Text className="text-white text-base font-extrabold">{techName}</Text>
+            <Text className="text-white text-base font-extrabold" numberOfLines={1}>
+              {employee?.name || "Technician"}
+            </Text>
+            {!!employee?.role && (
+              <Text className="text-zinc-500 text-[10px] capitalize">
+                {employee.role}
+                {employee.designation ? ` • ${employee.designation}` : ""}
+              </Text>
+            )}
           </View>
           <TouchableOpacity
             onPress={() => router.push("/jobs/new")}
@@ -79,19 +112,44 @@ export default function HvacJobsScreen() {
             placeholder="Search Serial No, Brand, Model, Site..."
             placeholderTextColor="#71717A"
             value={search}
-            onChangeText={setSearch}
+            onChangeText={onSearchChange}
             className="flex-1 text-white text-xs ml-2 py-0"
           />
         </View>
 
-        {/* Filter Pills */}
-        <View className="flex-row mt-3 gap-2">
+        {/* Status Filter Pills (SOP statuses, filtered server-side) */}
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={STATUS_FILTERS as unknown as string[]}
+          keyExtractor={(f) => f}
+          className="mt-3"
+          renderItem={({ item: f }) => (
+            <TouchableOpacity
+              onPress={() => setStatusFilter(f)}
+              className={`px-3 py-1.5 rounded-lg mr-2 ${
+                statusFilter === f ? "bg-cyan-500" : "bg-[#27272A]"
+              }`}
+            >
+              <Text
+                className={`text-xs font-bold ${
+                  statusFilter === f ? "text-black" : "text-zinc-400"
+                }`}
+              >
+                {f === "ALL" ? "All Statuses" : f}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+
+        {/* Unit Filter Pills */}
+        <View className="flex-row mt-2.5 gap-2">
           {["ALL", "Inverter", "Floor", "Chiller"].map((f) => (
             <TouchableOpacity
               key={f}
               onPress={() => setUnitFilter(f)}
               className={`px-3 py-1.5 rounded-lg ${
-                unitFilter === f ? "bg-cyan-500" : "bg-[#27272A]"
+                unitFilter === f ? "bg-zinc-100" : "bg-[#27272A]"
               }`}
             >
               <Text
@@ -112,6 +170,14 @@ export default function HvacJobsScreen() {
           <ActivityIndicator color="#06B6D4" size="large" />
           <Text className="text-zinc-500 text-xs mt-2">Loading HVAC bench cards...</Text>
         </View>
+      ) : error ? (
+        <View className="flex-1 items-center justify-center px-8">
+          <Text className="text-red-400 text-sm font-bold text-center">Could not load job cards</Text>
+          <Text className="text-zinc-500 text-xs text-center mt-1">{error}</Text>
+          <TouchableOpacity onPress={() => loadJobs()} className="bg-cyan-500 px-4 py-2 rounded-xl mt-4">
+            <Text className="text-black text-xs font-bold">Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={filteredJobs}
@@ -122,6 +188,7 @@ export default function HvacJobsScreen() {
             <View className="py-12 items-center justify-center border border-dashed border-zinc-800 rounded-2xl">
               <Snowflake color="#71717A" size={32} />
               <Text className="text-zinc-500 text-xs mt-2">No HVAC units found</Text>
+              <Text className="text-zinc-600 text-[10px] mt-1">Try another status filter or pull to refresh.</Text>
             </View>
           }
           renderItem={({ item }) => (
@@ -131,31 +198,7 @@ export default function HvacJobsScreen() {
             >
               <View className="flex-row items-center justify-between">
                 <Text className="text-cyan-400 font-mono text-xs font-extrabold">{item.jobNumber}</Text>
-                <View
-                  className={`px-2 py-0.5 rounded-full ${
-                    item.status === "Closed"
-                      ? "bg-zinc-800"
-                      : item.status === "Completed"
-                      ? "bg-emerald-950/80 border border-emerald-800"
-                      : item.status === "Pending Approval"
-                      ? "bg-amber-950/80 border border-amber-800"
-                      : "bg-cyan-950/80 border border-cyan-800"
-                  }`}
-                >
-                  <Text
-                    className={`text-[10px] font-bold ${
-                      item.status === "Closed"
-                        ? "text-zinc-400"
-                        : item.status === "Completed"
-                        ? "text-emerald-300"
-                        : item.status === "Pending Approval"
-                        ? "text-amber-300"
-                        : "text-cyan-300"
-                    }`}
-                  >
-                    {item.status}
-                  </Text>
-                </View>
+                <StatusChip status={item.status} />
               </View>
 
               <View className="mt-2">
@@ -163,6 +206,11 @@ export default function HvacJobsScreen() {
                 <Text className="text-zinc-400 text-xs mt-0.5">
                   {item.unitType} • S/N: {item.serialNumber || "N/A"}
                 </Text>
+                {!!item.assignedStaffName && (
+                  <Text className="text-zinc-500 text-[11px] mt-0.5">
+                    Technician: {item.assignedStaffName}
+                  </Text>
+                )}
               </View>
 
               {/* Bench Testing Strip */}
@@ -182,7 +230,7 @@ export default function HvacJobsScreen() {
                 <View className="flex-1 bg-[#09090B] p-2 rounded-xl border border-zinc-800/80">
                   <Text className="text-zinc-500 text-[9px] uppercase font-bold">Refrigerant</Text>
                   <Text className="text-emerald-400 font-mono font-bold text-xs">
-                    {item.refrigerantType || "R410A"}
+                    {item.refrigerantType || "—"}
                   </Text>
                 </View>
               </View>
